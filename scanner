@@ -1,0 +1,41 @@
+-- Read exact TowerStateUpdate data
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+print("=== Listening for TowerStateUpdate ===")
+
+local remote = ReplicatedStorage.Shared.Remote.Networking["RE/Tower/TowerStateUpdate"]
+
+print("Remote found:", remote:GetFullName())
+print("Waiting for tower to fire... activate it now!")
+
+remote.OnClientEvent:Connect(function(...)
+    local args = {...}
+    print("=== TowerStateUpdate FIRED ===")
+    for i, arg in ipairs(args) do
+        print("Arg " .. i .. " type:", type(arg))
+        if type(arg) == "table" then
+            print("  Table contents:")
+            for k, v in pairs(arg) do
+                print("    [" .. tostring(k) .. "] =", tostring(v), "(" .. type(v) .. ")")
+            end
+        elseif typeof(arg) == "Instance" then
+            print("  Instance:", arg:GetFullName(), "|", arg.ClassName)
+        else
+            print("  Value:", tostring(arg))
+        end
+    end
+end)
+
+-- Also check the other tower remotes with corrected path
+print("")
+print("--- All Tower Remotes at correct path ---")
+local ok, networking = pcall(function()
+    return ReplicatedStorage.Shared.Remote.Networking
+end)
+if ok then
+    for _, v in ipairs(networking:GetDescendants()) do
+        if v.Name:lower():find("tower") or v:GetFullName():lower():find("tower") then
+            print("FOUND:", v:GetFullName(), "|", v.ClassName)
+        end
+    end
+end
