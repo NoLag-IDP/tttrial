@@ -1,0 +1,500 @@
+-- Auto Tower Trials Script with GUI
+-- Place in StarterPlayerScripts as a LocalScript
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- ============================================================
+-- GUI SETUP
+-- ============================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutoTowerGUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = player.PlayerGui
+
+-- Main Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 280, 0, 320)
+mainFrame.Position = UDim2.new(0, 20, 0.5, -160)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 12)
+mainCorner.Parent = mainFrame
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(80, 50, 200)
+mainStroke.Thickness = 2
+mainStroke.Parent = mainFrame
+
+-- Title Bar
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 40)
+titleBar.BackgroundColor3 = Color3.fromRGB(80, 50, 200)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = titleBar
+
+-- Fix bottom corners of title bar
+local titleFix = Instance.new("Frame")
+titleFix.Size = UDim2.new(1, 0, 0.5, 0)
+titleFix.Position = UDim2.new(0, 0, 0.5, 0)
+titleFix.BackgroundColor3 = Color3.fromRGB(80, 50, 200)
+titleFix.BorderSizePixel = 0
+titleFix.Parent = titleBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -10, 1, 0)
+titleLabel.Position = UDim2.new(0, 10, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "🌊 Auto Tower Trials"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 15
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleBar
+
+-- Minimize Button
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 28, 0, 28)
+minimizeBtn.Position = UDim2.new(1, -34, 0, 6)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+minimizeBtn.BackgroundTransparency = 0.7
+minimizeBtn.Text = "−"
+minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimizeBtn.TextSize = 18
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.BorderSizePixel = 0
+minimizeBtn.Parent = titleBar
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 6)
+minCorner.Parent = minimizeBtn
+
+-- Content Frame (hides on minimize)
+local contentFrame = Instance.new("Frame")
+contentFrame.Name = "Content"
+contentFrame.Size = UDim2.new(1, 0, 1, -40)
+contentFrame.Position = UDim2.new(0, 0, 0, 40)
+contentFrame.BackgroundTransparency = 1
+contentFrame.Parent = mainFrame
+
+-- Status Section
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 10, 0, 10)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "STATUS"
+statusLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
+statusLabel.TextSize = 11
+statusLabel.Font = Enum.Font.GothamBold
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = contentFrame
+
+local statusValue = Instance.new("TextLabel")
+statusValue.Size = UDim2.new(1, -20, 0, 28)
+statusValue.Position = UDim2.new(0, 10, 0, 28)
+statusValue.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+statusValue.BackgroundTransparency = 0
+statusValue.Text = "⏳ Waiting for Tower..."
+statusValue.TextColor3 = Color3.fromRGB(200, 180, 80)
+statusValue.TextSize = 13
+statusValue.Font = Enum.Font.Gotham
+statusValue.TextXAlignment = Enum.TextXAlignment.Left
+statusValue.Parent = contentFrame
+
+local svPad = Instance.new("UIPadding")
+svPad.PaddingLeft = UDim.new(0, 8)
+svPad.Parent = statusValue
+
+local svCorner = Instance.new("UICorner")
+svCorner.CornerRadius = UDim.new(0, 8)
+svCorner.Parent = statusValue
+
+-- Progress Section
+local progressLabel = Instance.new("TextLabel")
+progressLabel.Size = UDim2.new(1, -20, 0, 20)
+progressLabel.Position = UDim2.new(0, 10, 0, 68)
+progressLabel.BackgroundTransparency = 1
+progressLabel.Text = "BRAINROTS SUBMITTED"
+progressLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
+progressLabel.TextSize = 11
+progressLabel.Font = Enum.Font.GothamBold
+progressLabel.TextXAlignment = Enum.TextXAlignment.Left
+progressLabel.Parent = contentFrame
+
+-- Progress Bar Background
+local progressBG = Instance.new("Frame")
+progressBG.Size = UDim2.new(1, -20, 0, 22)
+progressBG.Position = UDim2.new(0, 10, 0, 90)
+progressBG.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+progressBG.BorderSizePixel = 0
+progressBG.Parent = contentFrame
+
+local pbCorner = Instance.new("UICorner")
+pbCorner.CornerRadius = UDim.new(0, 8)
+pbCorner.Parent = progressBG
+
+-- Progress Bar Fill
+local progressFill = Instance.new("Frame")
+progressFill.Size = UDim2.new(0, 0, 1, 0)
+progressFill.BackgroundColor3 = Color3.fromRGB(80, 50, 200)
+progressFill.BorderSizePixel = 0
+progressFill.Parent = progressBG
+
+local pfCorner = Instance.new("UICorner")
+pfCorner.CornerRadius = UDim.new(0, 8)
+pfCorner.Parent = progressFill
+
+-- Progress Text
+local progressText = Instance.new("TextLabel")
+progressText.Size = UDim2.new(1, 0, 1, 0)
+progressText.BackgroundTransparency = 1
+progressText.Text = "0 / 10"
+progressText.TextColor3 = Color3.fromRGB(255, 255, 255)
+progressText.TextSize = 12
+progressText.Font = Enum.Font.GothamBold
+progressText.Parent = progressBG
+
+-- Rarity Section
+local rarityLabel = Instance.new("TextLabel")
+rarityLabel.Size = UDim2.new(1, -20, 0, 20)
+rarityLabel.Position = UDim2.new(0, 10, 0, 124)
+rarityLabel.BackgroundTransparency = 1
+rarityLabel.Text = "REQUIRED RARITY"
+rarityLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
+rarityLabel.TextSize = 11
+rarityLabel.Font = Enum.Font.GothamBold
+rarityLabel.TextXAlignment = Enum.TextXAlignment.Left
+rarityLabel.Parent = contentFrame
+
+local rarityValue = Instance.new("TextLabel")
+rarityValue.Size = UDim2.new(1, -20, 0, 28)
+rarityValue.Position = UDim2.new(0, 10, 0, 142)
+rarityValue.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+rarityValue.Text = "🔍 Unknown"
+rarityValue.TextColor3 = Color3.fromRGB(180, 180, 255)
+rarityValue.TextSize = 13
+rarityValue.Font = Enum.Font.Gotham
+rarityValue.TextXAlignment = Enum.TextXAlignment.Left
+rarityValue.Parent = contentFrame
+
+local rvPad = Instance.new("UIPadding")
+rvPad.PaddingLeft = UDim.new(0, 8)
+rvPad.Parent = rarityValue
+
+local rvCorner = Instance.new("UICorner")
+rvCorner.CornerRadius = UDim.new(0, 8)
+rvCorner.Parent = rarityValue
+
+-- Log Section
+local logLabel = Instance.new("TextLabel")
+logLabel.Size = UDim2.new(1, -20, 0, 20)
+logLabel.Position = UDim2.new(0, 10, 0, 182)
+logLabel.BackgroundTransparency = 1
+logLabel.Text = "LOG"
+logLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
+logLabel.TextSize = 11
+logLabel.Font = Enum.Font.GothamBold
+logLabel.TextXAlignment = Enum.TextXAlignment.Left
+logLabel.Parent = contentFrame
+
+local logFrame = Instance.new("ScrollingFrame")
+logFrame.Size = UDim2.new(1, -20, 0, 88)
+logFrame.Position = UDim2.new(0, 10, 0, 200)
+logFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+logFrame.BorderSizePixel = 0
+logFrame.ScrollBarThickness = 3
+logFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 50, 200)
+logFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+logFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+logFrame.Parent = contentFrame
+
+local lfCorner = Instance.new("UICorner")
+lfCorner.CornerRadius = UDim.new(0, 8)
+lfCorner.Parent = logFrame
+
+local logLayout = Instance.new("UIListLayout")
+logLayout.SortOrder = Enum.SortOrder.LayoutOrder
+logLayout.Padding = UDim.new(0, 2)
+logLayout.Parent = logFrame
+
+local logPad = Instance.new("UIPadding")
+logPad.PaddingLeft = UDim.new(0, 6)
+logPad.PaddingTop = UDim.new(0, 4)
+logPad.Parent = logFrame
+
+-- ============================================================
+-- GUI FUNCTIONS
+-- ============================================================
+local logCount = 0
+
+local function addLog(message, color)
+    color = color or Color3.fromRGB(200, 200, 210)
+    logCount = logCount + 1
+
+    local entry = Instance.new("TextLabel")
+    entry.Size = UDim2.new(1, -6, 0, 16)
+    entry.BackgroundTransparency = 1
+    entry.Text = message
+    entry.TextColor3 = color
+    entry.TextSize = 11
+    entry.Font = Enum.Font.Gotham
+    entry.TextXAlignment = Enum.TextXAlignment.Left
+    entry.TextTruncate = Enum.TextTruncate.AtEnd
+    entry.LayoutOrder = logCount
+    entry.Parent = logFrame
+
+    -- Auto scroll to bottom
+    task.defer(function()
+        logFrame.CanvasPosition = Vector2.new(0, logFrame.AbsoluteCanvasSize.Y)
+    end)
+
+    -- Keep only last 20 entries
+    if logCount > 20 then
+        local children = logFrame:GetChildren()
+        for _, child in ipairs(children) do
+            if child:IsA("TextLabel") and child.LayoutOrder == logCount - 20 then
+                child:Destroy()
+            end
+        end
+    end
+end
+
+local function setStatus(text, color)
+    statusValue.Text = text
+    statusValue.TextColor3 = color or Color3.fromRGB(200, 180, 80)
+end
+
+local function updateProgress(current, max)
+    local ratio = math.clamp(current / max, 0, 1)
+    TweenService:Create(progressFill, TweenInfo.new(0.3), {
+        Size = UDim2.new(ratio, 0, 1, 0)
+    }):Play()
+    progressText.Text = current .. " / " .. max
+
+    if ratio >= 1 then
+        progressFill.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+    else
+        progressFill.BackgroundColor3 = Color3.fromRGB(80, 50, 200)
+    end
+end
+
+local function setRarity(rarity)
+    if rarity then
+        rarityValue.Text = "✨ " .. rarity
+        rarityValue.TextColor3 = Color3.fromRGB(255, 220, 80)
+    else
+        rarityValue.Text = "🔍 Any"
+        rarityValue.TextColor3 = Color3.fromRGB(180, 180, 255)
+    end
+end
+
+-- Minimize toggle
+local minimized = false
+minimizeBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    contentFrame.Visible = not minimized
+    minimizeBtn.Text = minimized and "+" or "−"
+    mainFrame.Size = minimized and UDim2.new(0, 280, 0, 40) or UDim2.new(0, 280, 0, 320)
+end)
+
+-- ============================================================
+-- PATHS
+-- ============================================================
+local Networking = ReplicatedStorage.Asset.Shared.Remotes.Networking
+local TowerStateUpdate = Networking.RE.Tower.TowerStateUpdate
+local TowerConfirmClaim = Networking.RE.Tower.TowerConfirmClaim
+local TowerClaimConfirmed = Networking.RE.Tower.TowerClaimConfirmed
+local TowerRewardAnimation = Networking.RE.Tower.TowerRewardAnimation
+
+local TowerRoot = workspace.GameObjects.PlaceSpecific.root.Tower
+local TowerMain = TowerRoot:WaitForChild("main")
+local SubmitTarget = TowerMain:WaitForChild("submit target")
+
+local BrainrotSubmit = ReplicatedStorage.Asset.Misc.Tower:WaitForChild("BrainrotSubmit")
+local BrainrotReceive = ReplicatedStorage.Asset.Misc.Tower:WaitForChild("BrainrotReceive")
+
+-- ============================================================
+-- CONFIG
+-- ============================================================
+local REQUIRED_BRAINROTS = 10
+local POLL_INTERVAL = 1
+local AUTO_CLAIM = true
+
+local towerActive = false
+local submittedCount = 0
+local towerRequiredRarity = nil
+
+-- ============================================================
+-- REMOTE LISTENERS
+-- ============================================================
+TowerStateUpdate.OnClientEvent:Connect(function(state)
+    if state == "active" or state == true or (type(state) == "table" and state.active) then
+        towerActive = true
+        submittedCount = 0
+
+        if type(state) == "table" then
+            towerRequiredRarity = state.rarity or state.required or nil
+        end
+
+        setStatus("✅ Tower is ACTIVE!", Color3.fromRGB(80, 220, 120))
+        setRarity(towerRequiredRarity)
+        updateProgress(0, REQUIRED_BRAINROTS)
+        addLog("Tower activated! Rarity: " .. (towerRequiredRarity or "Any"), Color3.fromRGB(80, 220, 120))
+
+    elseif state == "inactive" or state == false or (type(state) == "table" and not state.active) then
+        towerActive = false
+        setStatus("⏳ Waiting for Tower...", Color3.fromRGB(200, 180, 80))
+        addLog("Tower went inactive.", Color3.fromRGB(180, 100, 100))
+    end
+end)
+
+TowerRewardAnimation.OnClientEvent:Connect(function(reward)
+    addLog("🎁 Reward received: " .. tostring(reward), Color3.fromRGB(255, 220, 80))
+    setStatus("🎁 Reward Claimed!", Color3.fromRGB(255, 220, 80))
+end)
+
+TowerClaimConfirmed.OnClientEvent:Connect(function(data)
+    addLog("✅ Claim confirmed!", Color3.fromRGB(80, 220, 120))
+    setStatus("⏳ Waiting for Tower...", Color3.fromRGB(200, 180, 80))
+    towerActive = false
+    submittedCount = 0
+    updateProgress(0, REQUIRED_BRAINROTS)
+end)
+
+-- ============================================================
+-- HELPERS
+-- ============================================================
+local function findNearbyBrainrot()
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    local closestBrainrot = nil
+    local closestDist = 50
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") or obj:IsA("BasePart") then
+            local name = obj.Name:lower()
+            if name:find("brainrot") then
+                local pos = obj:IsA("Model") and (obj.PrimaryPart and obj.PrimaryPart.Position) or obj.Position
+                if pos then
+                    local dist = (hrp.Position - pos).Magnitude
+                    if dist < closestDist then
+                        if towerRequiredRarity then
+                            local rarityTag = obj:FindFirstChild("Rarity") or obj:FindFirstChild("rarity")
+                            if rarityTag and rarityTag.Value:lower() == towerRequiredRarity:lower() then
+                                closestDist = dist
+                                closestBrainrot = obj
+                            end
+                        else
+                            closestDist = dist
+                            closestBrainrot = obj
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return closestBrainrot
+end
+
+local function walkTo(position)
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not hrp or not humanoid then return end
+
+    humanoid:MoveTo(position)
+
+    local timeout = 10
+    local start = tick()
+    while (hrp.Position - position).Magnitude > 5 and tick() - start < timeout do
+        task.wait(0.1)
+    end
+end
+
+local function submitBrainrot(brainrot)
+    local proximityPrompt = SubmitTarget:FindFirstChildOfClass("ProximityPrompt")
+        or TowerMain:FindFirstChildOfClass("ProximityPrompt")
+
+    if proximityPrompt then
+        walkTo(SubmitTarget.Position)
+        task.wait(0.3)
+        fireproximityprompt(proximityPrompt)
+    else
+        if BrainrotSubmit:IsA("RemoteEvent") then
+            BrainrotSubmit:FireServer(brainrot)
+        elseif BrainrotSubmit:IsA("RemoteFunction") then
+            BrainrotSubmit:InvokeServer(brainrot)
+        end
+    end
+
+    submittedCount = submittedCount + 1
+    updateProgress(submittedCount, REQUIRED_BRAINROTS)
+    addLog("Submitted brainrot " .. submittedCount .. "/" .. REQUIRED_BRAINROTS, Color3.fromRGB(160, 160, 255))
+    setStatus("🔄 Submitting... " .. submittedCount .. "/" .. REQUIRED_BRAINROTS, Color3.fromRGB(100, 180, 255))
+end
+
+local function claimReward()
+    setStatus("🎯 Claiming reward...", Color3.fromRGB(255, 220, 80))
+    addLog("Attempting to claim reward...", Color3.fromRGB(255, 220, 80))
+
+    TowerConfirmClaim:FireServer()
+
+    local centerPrompt = TowerMain:FindFirstChild("center")
+    if centerPrompt then
+        local pp = centerPrompt:FindFirstChildOfClass("ProximityPrompt")
+        if pp then
+            walkTo(centerPrompt.Position)
+            task.wait(0.3)
+            fireproximityprompt(pp)
+        end
+    end
+end
+
+-- ============================================================
+-- MAIN LOOP
+-- ============================================================
+addLog("Script loaded. Waiting for tower...", Color3.fromRGB(120, 120, 180))
+
+task.spawn(function()
+    while true do
+        task.wait(POLL_INTERVAL)
+
+        if not towerActive then continue end
+
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:UnequipTools()
+        end
+
+        if submittedCount < REQUIRED_BRAINROTS then
+            local brainrot = findNearbyBrainrot()
+            if brainrot then
+                addLog("Found: " .. brainrot.Name, Color3.fromRGB(160, 255, 160))
+                submitBrainrot(brainrot)
+                task.wait(0.5)
+            else
+                setStatus("🔍 Searching for brainrots...", Color3.fromRGB(200, 180, 80))
+            end
+        elseif submittedCount >= REQUIRED_BRAINROTS and AUTO_CLAIM then
+            claimReward()
+            task.wait(5)
+        end
+    end
+end)
