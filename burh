@@ -1,0 +1,1398 @@
+--// ETFB Rayfield GUI - Delta Compatible
+local Rayfield      = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Players       = game:GetService("Players")
+local RunService    = game:GetService("RunService")
+local TweenService  = game:GetService("TweenService")
+local PPS           = game:GetService("ProximityPromptService")
+local VirtualUser   = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local camera        = workspace.CurrentCamera
+local player        = Players.LocalPlayer
+
+--------------------------------------------------------
+-- SHARED HELPERS
+--------------------------------------------------------
+local function getMainPart(obj)
+	if obj:IsA("BasePart") then return obj end
+	return obj:FindFirstChildWhichIsA("BasePart")
+end
+
+local function inFilterSet(filterSet, rarity)
+	if filterSet["ALL"] then return true end
+	if not next(filterSet) then return false end
+	return filterSet[rarity:upper()] == true
+end
+
+--------------------------------------------------------
+-- GOD MODE
+--------------------------------------------------------
+local isGodmode = false
+local ghostClone, gmConnection, noclipConn, deathConn = nil, nil, nil, nil
+local lastPromptUpdate = 0
+
+local function cleanupGodmode()
+	isGodmode = false
+	if gmConnection then gmConnection:Disconnect() gmConnection = nil end
+	if noclipConn   then noclipConn:Disconnect()   noclipConn   = nil end
+	if deathConn    then deathConn:Disconnect()     deathConn    = nil end
+	local char = player.Character
+	if char then
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if root and ghostClone and ghostClone:FindFirstChild("HumanoidRootPart") then
+			root.CFrame = ghostClone.HumanoidRootPart.CFrame
+		end
+		local hum = char:FindFirstChild("Humanoid")
+		if hum then
+			hum.PlatformStand = false
+			camera.CameraSubject = hum
+		end
+	end
+	if ghostClone then ghostClone:Destroy() ghostClone = nil end
+end
+
+local function enableGodmode()
+	local char = player.Character
+	if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+	cleanupGodmode()
+	isGodmode = true
+	char.Archivable = true
+	ghostClone = char:Clone()
+	ghostClone.Name = "GhostDecoy"
+	ghostClone.Parent = workspace
+	char.Archivable = false
+	for _, v in pairs(ghostClone:GetDescendants()) do
+		if v:IsA("BasePart") then
+			v.Transparency = (v.Name:lower():find("root") or v.Name:lower():find("collision")) and 0.5 or 0
+			v.CanCollide = true
+		elseif v:IsA("Decal") or v:IsA("Texture") then
+			v.Transparency = 0
+		end
+	end
+	if char:FindFirstChild("Animate") then char.Animate:Clone().Parent = ghostClone end
+	char.Humanoid.PlatformStand = true
+	camera.CameraSubject = ghostClone.Humanoid
+	noclipConn = RunService.Stepped:Connect(function()
+		if char then
+			for _, v in pairs(char:GetDescendants()) do
+				if v:IsA("BasePart") then v.CanCollide = false end
+			end
+		end
+	end)
+	gmConnection = RunService.Heartbeat:Connect(function()
+		if ghostClone and char and char:FindFirstChild("HumanoidRootPart") then
+			local moveDir = char.Humanoid.MoveDirection
+			ghostClone.Humanoid:Move(moveDir, false)
+			ghostClone.Humanoid.Jump = char.Humanoid.Jump
+			if moveDir.Magnitude > 0 then
+				local targetRot = CFrame.lookAt(
+					ghostClone.HumanoidRootPart.Position,
+					ghostClone.HumanoidRootPart.Position + moveDir
+				)
+				ghostClone.HumanoidRootPart.CFrame = ghostClone.HumanoidRootPart.CFrame:Lerp(targetRot, 0.25)
+			end
+			if tick() - lastPromptUpdate > 0.5 then
+				for _, p in pairs(workspace:GetDescendants()) do
+					if p:IsA("ProximityPrompt") then
+						p.MaxActivationDistance = 25
+						p.RequiresLineOfSight = false
+					end
+				end
+				lastPromptUpdate = tick()
+			end
+			char.HumanoidRootPart.CFrame = ghostClone.HumanoidRootPart.CFrame * CFrame.new(0, -15, 0)
+			char.HumanoidRootPart.Velocity = Vector3.zero
+		else
+			cleanupGodmode()
+		end
+	end)
+	deathConn = char.Humanoid.Died:Connect(cleanupGodmode)
+end
+
+player.CharacterAdded:Connect(function()
+	if isGodmode then task.wait(0.5) enableGodmode() end
+end)
+
+--------------------------------------------------------
+-- FAST TAKE
+--------------------------------------------------------
+local instantTakeConn = nil
+
+local function enableInstantTake()
+	if instantTakeConn then return end
+	instantTakeConn = PPS.PromptButtonHoldBegan:Connect(function(prompt)
+		pcall(function() fireproximityprompt(prompt) end)
+	end)
+end
+
+local function disableInstantTake()
+	if instantTakeConn then instantTakeConn:Disconnect() instantTakeConn = nil end
+end
+
+--------------------------------------------------------
+-- VIP BYPASS
+--------------------------------------------------------
+local vipConnection = nil
+local vipBackup = {}
+
+local function getVIP()
+	local map = workspace:FindFirstChild("DefaultMap_SharedInstances", true)
+	if not map then return end
+	return map:FindFirstChild("VIPWalls")
+end
+
+local function backupVIP(vip)
+	vipBackup = {}
+	for _, v in ipairs(vip:GetChildren()) do table.insert(vipBackup, v:Clone()) end
+end
+
+local function restoreVIP(vip)
+	vip:ClearAllChildren()
+	for _, v in ipairs(vipBackup) do v:Clone().Parent = vip end
+end
+
+local function enableVIP()
+	local vip = getVIP()
+	if not vip then return end
+	if #vipBackup == 0 then backupVIP(vip) end
+	vipConnection = RunService.Heartbeat:Connect(function()
+		for _, v in ipairs(vip:GetDescendants()) do
+			if v:IsA("BasePart") then v.CanCollide = false end
+			if v:IsA("GuiObject") or v:IsA("Decal") or v:IsA("Texture") or v.Name:lower():match("vip") then
+				pcall(function() v:Destroy() end)
+			end
+		end
+	end)
+end
+
+local function disableVIP()
+	if vipConnection then vipConnection:Disconnect() vipConnection = nil end
+	local vip = getVIP()
+	if vip and #vipBackup > 0 then restoreVIP(vip) end
+end
+
+--------------------------------------------------------
+-- INFINITE ZOOM
+--------------------------------------------------------
+local defaultMaxZoom = player.CameraMaxZoomDistance
+local defaultMinZoom = player.CameraMinZoomDistance
+
+local function enableInfiniteZoom()
+	player.CameraMaxZoomDistance = math.huge
+	player.CameraMinZoomDistance = 0.5
+end
+
+local function disableInfiniteZoom()
+	player.CameraMaxZoomDistance = defaultMaxZoom
+	player.CameraMinZoomDistance = defaultMinZoom
+end
+
+--------------------------------------------------------
+-- LUCKY BLOCK ESP
+--------------------------------------------------------
+local luckyESPEnabled = false
+local luckyESPFilter  = { ALL = true }
+local luckyESPConnAdd, luckyESPConnRemove = nil, nil
+
+local LUCKY_COLORS = {
+	COMMON      = Color3.fromRGB(200, 200, 200),
+	UNCOMMON    = Color3.fromRGB(80,  200, 80),
+	RARE        = Color3.fromRGB(80,  120, 255),
+	EPIC        = Color3.fromRGB(160, 60,  220),
+	LEGENDARY   = Color3.fromRGB(255, 170, 0),
+	MYTHICAL    = Color3.fromRGB(255, 80,  80),
+	COSMIC      = Color3.fromRGB(0,   220, 255),
+	SECRET      = Color3.fromRGB(255, 0,   120),
+	CELESTIAL   = Color3.fromRGB(200, 230, 255),
+	DIVINE      = Color3.fromRGB(255, 255, 100),
+	RADIOACTIVE = Color3.fromRGB(100, 255, 60),
+	UFO         = Color3.fromRGB(60,  255, 200),
+	MYTHIC      = Color3.fromRGB(255, 100, 60),
+	ADMIN       = Color3.fromRGB(255, 50,  50),
+}
+
+local function getLastWord(name)
+	return name:match("_(%w+)$") or "unknown"
+end
+
+local function addLuckyESP(obj)
+	local part = getMainPart(obj)
+	if not part then return end
+	local rarity = getLastWord(obj.Name):upper()
+	if part:FindFirstChild("LuckyESP") then part.LuckyESP:Destroy() end
+	if not inFilterSet(luckyESPFilter, rarity) then return end
+	local color = LUCKY_COLORS[rarity] or Color3.new(1, 1, 1)
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "LuckyESP"
+	bb.Size = UDim2.new(0, 90, 0, 20)
+	bb.StudsOffset = Vector3.new(0, 3, 0)
+	bb.AlwaysOnTop = true
+	bb.MaxDistance = math.huge
+	bb.Parent = part
+	local txt = Instance.new("TextLabel")
+	txt.Size = UDim2.new(1, 0, 1, 0)
+	txt.BackgroundTransparency = 1
+	txt.TextScaled = true
+	txt.Font = Enum.Font.GothamBold
+	txt.TextStrokeTransparency = 0
+	txt.TextColor3 = color
+	txt.Text = rarity
+	txt.Parent = bb
+end
+
+local function removeLuckyESP(obj)
+	local part = getMainPart(obj)
+	if part and part:FindFirstChild("LuckyESP") then part.LuckyESP:Destroy() end
+end
+
+local function refreshLuckyESP()
+	local folder = workspace:FindFirstChild("ActiveLuckyBlocks")
+	if not folder then return end
+	for _, v in ipairs(folder:GetChildren()) do addLuckyESP(v) end
+end
+
+local function enableLuckyESP()
+	local folder = workspace:FindFirstChild("ActiveLuckyBlocks")
+	if not folder then return end
+	for _, v in ipairs(folder:GetChildren()) do addLuckyESP(v) end
+	luckyESPConnAdd    = folder.ChildAdded:Connect(function(v) task.wait(0.2) addLuckyESP(v) end)
+	luckyESPConnRemove = folder.ChildRemoved:Connect(function(v) removeLuckyESP(v) end)
+end
+
+local function disableLuckyESP()
+	if luckyESPConnAdd    then luckyESPConnAdd:Disconnect()    luckyESPConnAdd    = nil end
+	if luckyESPConnRemove then luckyESPConnRemove:Disconnect() luckyESPConnRemove = nil end
+	local folder = workspace:FindFirstChild("ActiveLuckyBlocks")
+	if folder then for _, v in ipairs(folder:GetChildren()) do removeLuckyESP(v) end end
+end
+
+--------------------------------------------------------
+-- BRAINROT ESP
+--------------------------------------------------------
+local brainrotESPEnabled  = false
+local brainrotESPFilter   = { ALL = true }
+local brainrotRarityConns = {}
+
+local BRAINROT_COLORS = {
+	COMMON    = Color3.fromRGB(200, 200, 200),
+	UNCOMMON  = Color3.fromRGB(80,  200, 80),
+	RARE      = Color3.fromRGB(80,  120, 255),
+	EPIC      = Color3.fromRGB(160, 60,  220),
+	COSMIC    = Color3.fromRGB(0,   220, 255),
+	LEGENDARY = Color3.fromRGB(255, 170, 0),
+	MYTHICAL  = Color3.fromRGB(255, 80,  80),
+	SECRET    = Color3.fromRGB(255, 0,   120),
+	CELESTIAL = Color3.fromRGB(200, 230, 255),
+	DIVINE    = Color3.fromRGB(255, 255, 100),
+	INFINITY  = Color3.fromRGB(180, 0,   255),
+}
+
+local function addBrainrotESP(obj, rarity)
+	local part = getMainPart(obj)
+	if not part then return end
+	if part:FindFirstChild("BrainrotESP") then part.BrainrotESP:Destroy() end
+	if not inFilterSet(brainrotESPFilter, rarity) then return end
+	local color = BRAINROT_COLORS[rarity:upper()] or Color3.fromRGB(255, 150, 50)
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "BrainrotESP"
+	bb.Size = UDim2.new(0, 100, 0, 22)
+	bb.StudsOffset = Vector3.new(0, 4, 0)
+	bb.AlwaysOnTop = true
+	bb.MaxDistance = math.huge
+	bb.Parent = part
+	local txt = Instance.new("TextLabel")
+	txt.Size = UDim2.new(1, 0, 1, 0)
+	txt.BackgroundTransparency = 1
+	txt.TextScaled = true
+	txt.Font = Enum.Font.GothamBold
+	txt.TextStrokeTransparency = 0
+	txt.TextColor3 = color
+	txt.Text = rarity:upper()
+	txt.Parent = bb
+end
+
+local function removeBrainrotESP(obj)
+	local part = getMainPart(obj)
+	if part and part:FindFirstChild("BrainrotESP") then part.BrainrotESP:Destroy() end
+end
+
+local function forEachBrainrot(callback)
+	local root = workspace:FindFirstChild("ActiveBrainrots")
+	if not root then return end
+	for _, rarityFolder in ipairs(root:GetChildren()) do
+		if rarityFolder:IsA("Folder") or rarityFolder:IsA("Model") then
+			for _, obj in ipairs(rarityFolder:GetChildren()) do
+				callback(obj, rarityFolder.Name)
+			end
+		end
+	end
+end
+
+local function refreshBrainrotESP()
+	forEachBrainrot(function(obj, rarity) addBrainrotESP(obj, rarity) end)
+end
+
+local function enableBrainrotESP()
+	local root = workspace:FindFirstChild("ActiveBrainrots")
+	if not root then return end
+	refreshBrainrotESP()
+	for _, rarityFolder in ipairs(root:GetChildren()) do
+		local rarity = rarityFolder.Name
+		local ca = rarityFolder.ChildAdded:Connect(function(obj)
+			task.wait(0.2) addBrainrotESP(obj, rarity)
+		end)
+		local cr = rarityFolder.ChildRemoved:Connect(function(obj)
+			removeBrainrotESP(obj)
+		end)
+		table.insert(brainrotRarityConns, ca)
+		table.insert(brainrotRarityConns, cr)
+	end
+	local cf = root.ChildAdded:Connect(function(rarityFolder)
+		task.wait(0.2)
+		local rarity = rarityFolder.Name
+		for _, obj in ipairs(rarityFolder:GetChildren()) do addBrainrotESP(obj, rarity) end
+		local ca = rarityFolder.ChildAdded:Connect(function(obj)
+			task.wait(0.2) addBrainrotESP(obj, rarity)
+		end)
+		local cr = rarityFolder.ChildRemoved:Connect(function(obj)
+			removeBrainrotESP(obj)
+		end)
+		table.insert(brainrotRarityConns, ca)
+		table.insert(brainrotRarityConns, cr)
+	end)
+	table.insert(brainrotRarityConns, cf)
+end
+
+local function disableBrainrotESP()
+	for _, conn in ipairs(brainrotRarityConns) do conn:Disconnect() end
+	brainrotRarityConns = {}
+	forEachBrainrot(function(obj) removeBrainrotESP(obj) end)
+end
+
+--------------------------------------------------------
+-- SHARED FARM GHOST / NOCLIP SYSTEM
+--------------------------------------------------------
+local farmNoclipConn = nil
+local farmSurfacePos = Vector3.new(0, 0, 0)
+local farmGhost      = nil
+local farmReach      = 20
+local INSTANT_COLLECT_DISTANCE = 20
+
+local function createFarmGhost()
+	if farmGhost then farmGhost:Destroy() end
+	local char = player.Character
+	if not char then return end
+	char.Archivable = true
+	local ghost = char:Clone()
+	char.Archivable = false
+	ghost.Name = "FarmGhost"
+	for _, v in ipairs(ghost:GetDescendants()) do
+		if v:IsA("BasePart") then
+			v.CanCollide = false
+			v.Anchored   = true
+		elseif v:IsA("Script") or v:IsA("LocalScript") then
+			v:Destroy()
+		end
+	end
+	ghost.Parent = workspace
+	farmGhost = ghost
+	local gh = ghost:FindFirstChildOfClass("Humanoid")
+	if gh then camera.CameraSubject = gh end
+end
+
+local function destroyFarmGhost()
+	if farmGhost then farmGhost:Destroy() farmGhost = nil end
+	local char = player.Character
+	if char then
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then camera.CameraSubject = hum end
+	end
+end
+
+local function startFarmNoclip()
+	if farmNoclipConn then return end
+	farmNoclipConn = RunService.Heartbeat:Connect(function()
+		local char = player.Character
+		if not char then return end
+		for _, v in ipairs(char:GetDescendants()) do
+			if v:IsA("BasePart") then v.CanCollide = false end
+		end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			hrp.CFrame   = CFrame.new(farmSurfacePos + Vector3.new(0, -15, 0))
+			hrp.Velocity = Vector3.zero
+		end
+	end)
+end
+
+local function stopFarmNoclip()
+	if farmNoclipConn then farmNoclipConn:Disconnect() farmNoclipConn = nil end
+	local char = player.Character
+	if char then
+		for _, v in ipairs(char:GetDescendants()) do
+			if v:IsA("BasePart") then v.CanCollide = true end
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.PlatformStand = false end
+	end
+end
+
+local function smoothTweenTo(targetPos, farmEnabledRef)
+	local ghostHRP = farmGhost and farmGhost:FindFirstChild("HumanoidRootPart")
+	if not ghostHRP then return end
+	local dist = (targetPos - ghostHRP.Position).Magnitude
+	if dist <= INSTANT_COLLECT_DISTANCE then
+		ghostHRP.CFrame = CFrame.new(targetPos)
+		farmSurfacePos  = targetPos
+		return
+	end
+	local speed       = farmEnabledRef("speed")
+	local speedFactor = 0.08 - ((speed - 1) / 29) * 0.079
+	local duration    = math.max(0.01, dist * speedFactor)
+	local tween = TweenService:Create(
+		ghostHRP,
+		TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+		{ CFrame = CFrame.new(targetPos) }
+	)
+	tween:Play()
+	local done = false
+	tween.Completed:Connect(function() done = true end)
+	while not done do
+		if not farmEnabledRef("enabled") then tween:Cancel() return end
+		farmSurfacePos = ghostHRP.Position
+		task.wait()
+	end
+	farmSurfacePos = targetPos
+end
+
+local function patchPromptReach(nearPos, radius)
+	for _, p in ipairs(workspace:GetDescendants()) do
+		if p:IsA("ProximityPrompt") then
+			local pp = p.Parent and getMainPart(p.Parent)
+			if pp and (pp.Position - nearPos).Magnitude < radius then
+				p.MaxActivationDistance = math.huge
+				p.RequiresLineOfSight   = false
+			end
+		end
+	end
+end
+
+local function getBasePosition()
+	local basesFolder = workspace:FindFirstChild("Bases")
+	if not basesFolder then return nil end
+	local closestPos, shortestDist = nil, math.huge
+	for _, base in pairs(basesFolder:GetChildren()) do
+		if base:IsA("Model") and base.PrimaryPart then
+			local dist = (base.PrimaryPart.Position - farmSurfacePos).Magnitude
+			if dist < shortestDist then
+				shortestDist = dist
+				closestPos   = base.PrimaryPart.Position
+			end
+		end
+	end
+	return closestPos
+end
+
+-- Shared brainrot pickup logic (used by both autofarm and tower trials)
+local function pickupBrainrot(target)
+	local prompt = target.part:FindFirstChildOfClass("ProximityPrompt")
+	if prompt then
+		prompt.MaxActivationDistance = math.huge
+		prompt.RequiresLineOfSight   = false
+		pcall(function() fireproximityprompt(prompt) end)
+	else
+		local parentPrompt = target.part.Parent
+			and target.part.Parent:FindFirstChildOfClass("ProximityPrompt")
+		if parentPrompt then
+			parentPrompt.MaxActivationDistance = math.huge
+			parentPrompt.RequiresLineOfSight   = false
+			pcall(function() fireproximityprompt(parentPrompt) end)
+		end
+	end
+end
+
+local function fireAllPrompts(obj)
+	if not obj then return end
+	local pp = obj:FindFirstChildOfClass("ProximityPrompt")
+	if pp then
+		pp.MaxActivationDistance = math.huge
+		pp.RequiresLineOfSight = false
+		pcall(function() fireproximityprompt(pp) end)
+	end
+	for _, desc in ipairs(obj:GetDescendants()) do
+		if desc:IsA("ProximityPrompt") then
+			desc.MaxActivationDistance = math.huge
+			desc.RequiresLineOfSight = false
+			pcall(function() fireproximityprompt(desc) end)
+		end
+	end
+end
+
+--------------------------------------------------------
+-- BRAINROT AUTO FARM
+--------------------------------------------------------
+local autoFarmEnabled = false
+local autoFarmFilter  = {}
+local autoFarmDelay   = 0
+local autoFarmSpeed   = 5
+local autoFarmThread  = nil
+
+local RARITY_PRIORITY = {
+	INFINITY  = 12, DIVINE    = 11, CELESTIAL = 10, SECRET   = 9,
+	MYTHICAL  = 8,  LEGENDARY = 7,  COSMIC    = 6,  EPIC     = 5,
+	RARE      = 4,  UNCOMMON  = 3,  COMMON    = 2,
+}
+
+local function brainrotFarmRef(key)
+	if key == "enabled" then return autoFarmEnabled end
+	if key == "speed"   then return autoFarmSpeed   end
+end
+
+local function getTargetBrainrots(filterSet, wantedRarity)
+	local root = workspace:FindFirstChild("ActiveBrainrots")
+	if not root then return {} end
+	local list = {}
+	for _, rarityFolder in ipairs(root:GetChildren()) do
+		local rarity = rarityFolder.Name:upper()
+		local passFilter = filterSet and inFilterSet(filterSet, rarity) or true
+		local passWanted = not wantedRarity or rarity == wantedRarity:upper()
+		if passFilter and passWanted then
+			for _, renderedBrainrot in ipairs(rarityFolder:GetChildren()) do
+				local part = nil
+				if renderedBrainrot:IsA("BasePart") then
+					part = renderedBrainrot
+				elseif renderedBrainrot:IsA("Model") then
+					part = renderedBrainrot.PrimaryPart
+						or renderedBrainrot:FindFirstChildWhichIsA("BasePart", true)
+				else
+					part = renderedBrainrot:FindFirstChildWhichIsA("BasePart", true)
+				end
+				if part then
+					table.insert(list, {
+						obj      = renderedBrainrot,
+						part     = part,
+						rarity   = rarity,
+						priority = RARITY_PRIORITY[rarity] or 1,
+					})
+				end
+			end
+		end
+	end
+	table.sort(list, function(a, b) return a.priority > b.priority end)
+	return list
+end
+
+local function returnToBase(farmEnabledRef)
+	local basePos = getBasePosition()
+	if not basePos then return end
+	smoothTweenTo(basePos + Vector3.new(0, 3, 0), farmEnabledRef)
+	patchPromptReach(basePos, 40)
+	for _, p in ipairs(workspace:GetDescendants()) do
+		if p:IsA("ProximityPrompt") then
+			local pp = p.Parent and getMainPart(p.Parent)
+			if pp and (pp.Position - basePos).Magnitude < 40 then
+				pcall(function() fireproximityprompt(p) end)
+			end
+		end
+	end
+	task.wait(1)
+end
+
+local function runAutoFarm()
+	local deathRecoveryConn
+	deathRecoveryConn = player.CharacterAdded:Connect(function(newChar)
+		if not autoFarmEnabled then deathRecoveryConn:Disconnect() return end
+		task.wait(2)
+		if not autoFarmEnabled then return end
+		destroyFarmGhost()
+		stopFarmNoclip()
+		local hrp = newChar:FindFirstChild("HumanoidRootPart")
+			or newChar:WaitForChild("HumanoidRootPart", 5)
+		if hrp then farmSurfacePos = hrp.Position end
+		createFarmGhost()
+		startFarmNoclip()
+	end)
+	local char = player.Character
+	if char then
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp then farmSurfacePos = hrp.Position end
+	end
+	createFarmGhost()
+	startFarmNoclip()
+	while autoFarmEnabled do
+		local targets = getTargetBrainrots(autoFarmFilter, nil)
+		if #targets == 0 then
+			task.wait(2)
+		else
+			local collected = false
+			for _, target in ipairs(targets) do
+				if not autoFarmEnabled then break end
+				if not target.part or not target.part.Parent then continue end
+				smoothTweenTo(target.part.Position + Vector3.new(0, 3, 0), brainrotFarmRef)
+				if not autoFarmEnabled then break end
+				if not target.part.Parent then continue end
+				task.wait(0.5)
+				pickupBrainrot(target)
+				task.wait(0.3)
+				if not target.part.Parent then
+					collected = true
+					break
+				end
+			end
+			if collected then
+				returnToBase(brainrotFarmRef)
+				if not autoFarmEnabled then break end
+				if autoFarmDelay > 0 then task.wait(autoFarmDelay) end
+			end
+		end
+		task.wait(0.3)
+	end
+	deathRecoveryConn:Disconnect()
+	destroyFarmGhost()
+	stopFarmNoclip()
+end
+
+local function startAutoFarm()
+	if autoFarmThread then return end
+	autoFarmEnabled = true
+	autoFarmThread  = task.spawn(runAutoFarm)
+end
+
+local function stopAutoFarm()
+	autoFarmEnabled = false
+	autoFarmThread  = nil
+	destroyFarmGhost()
+	stopFarmNoclip()
+end
+
+--------------------------------------------------------
+-- LUCKY BLOCK AUTO FARM
+--------------------------------------------------------
+local luckyFarmEnabled = false
+local luckyFarmFilter  = { ALL = true }
+local luckyFarmDelay   = 0
+local luckyFarmSpeed   = 5
+local luckyFarmThread  = nil
+
+local LUCKY_PRIORITY = {
+	ADMIN       = 14, MYTHIC      = 13, UFO         = 12,
+	RADIOACTIVE = 11, DIVINE      = 10, CELESTIAL   = 9,
+	SECRET      = 8,  COSMIC      = 7,  MYTHICAL    = 6,
+	LEGENDARY   = 5,  EPIC        = 4,  RARE        = 3,
+	UNCOMMON    = 2,  COMMON      = 1,
+}
+
+local function luckyFarmRef(key)
+	if key == "enabled" then return luckyFarmEnabled end
+	if key == "speed"   then return luckyFarmSpeed   end
+end
+
+local function getTargetLuckyBlocks()
+	local folder = workspace:FindFirstChild("ActiveLuckyBlocks")
+	if not folder then return {} end
+	local list = {}
+	for _, obj in ipairs(folder:GetChildren()) do
+		local rarity = getLastWord(obj.Name):upper()
+		if inFilterSet(luckyFarmFilter, rarity) then
+			local part = getMainPart(obj)
+			if part then
+				table.insert(list, {
+					obj      = obj,
+					part     = part,
+					rarity   = rarity,
+					priority = LUCKY_PRIORITY[rarity] or 1,
+				})
+			end
+		end
+	end
+	table.sort(list, function(a, b) return a.priority > b.priority end)
+	return list
+end
+
+local function returnToBaseLucky()
+	local basePos = getBasePosition()
+	if not basePos then return end
+	smoothTweenTo(basePos + Vector3.new(0, 3, 0), luckyFarmRef)
+	patchPromptReach(basePos, 40)
+	for _, p in ipairs(workspace:GetDescendants()) do
+		if p:IsA("ProximityPrompt") then
+			local pp = p.Parent and getMainPart(p.Parent)
+			if pp and (pp.Position - basePos).Magnitude < 40 then
+				pcall(function() fireproximityprompt(p) end)
+			end
+		end
+	end
+	task.wait(1)
+end
+
+local function runLuckyFarm()
+	local deathRecoveryConn
+	deathRecoveryConn = player.CharacterAdded:Connect(function(newChar)
+		if not luckyFarmEnabled then deathRecoveryConn:Disconnect() return end
+		task.wait(2)
+		if not luckyFarmEnabled then return end
+		destroyFarmGhost()
+		stopFarmNoclip()
+		local hrp = newChar:FindFirstChild("HumanoidRootPart")
+			or newChar:WaitForChild("HumanoidRootPart", 5)
+		if hrp then farmSurfacePos = hrp.Position end
+		createFarmGhost()
+		startFarmNoclip()
+	end)
+	local char = player.Character
+	if char then
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp then farmSurfacePos = hrp.Position end
+	end
+	createFarmGhost()
+	startFarmNoclip()
+	while luckyFarmEnabled do
+		local targets = getTargetLuckyBlocks()
+		if #targets == 0 then
+			task.wait(2)
+		else
+			local target = targets[1]
+			if target and target.part and target.part.Parent then
+				smoothTweenTo(target.part.Position + Vector3.new(0, 3, 0), luckyFarmRef)
+				if not luckyFarmEnabled then break end
+				task.wait(0.5)
+				patchPromptReach(target.part.Position, farmReach)
+				for _, desc in ipairs(target.obj:GetDescendants()) do
+					if desc:IsA("ProximityPrompt") then
+						pcall(function() fireproximityprompt(desc) end)
+					end
+				end
+				for _, p in ipairs(workspace:GetDescendants()) do
+					if p:IsA("ProximityPrompt") then
+						local pp = p.Parent and getMainPart(p.Parent)
+						if pp and (pp.Position - target.part.Position).Magnitude < farmReach then
+							pcall(function() fireproximityprompt(p) end)
+						end
+					end
+				end
+				returnToBaseLucky()
+				if not luckyFarmEnabled then break end
+				if luckyFarmDelay > 0 then task.wait(luckyFarmDelay) end
+			end
+		end
+		task.wait(0.3)
+	end
+	deathRecoveryConn:Disconnect()
+	destroyFarmGhost()
+	stopFarmNoclip()
+end
+
+local function startLuckyFarm()
+	if luckyFarmThread then return end
+	luckyFarmEnabled = true
+	luckyFarmThread  = task.spawn(runLuckyFarm)
+end
+
+local function stopLuckyFarm()
+	luckyFarmEnabled = false
+	luckyFarmThread  = nil
+	destroyFarmGhost()
+	stopFarmNoclip()
+end
+
+--------------------------------------------------------
+-- ANTI AFK
+--------------------------------------------------------
+local antiAFKConn = nil
+
+local function enableAntiAFK()
+	if antiAFKConn then return end
+	antiAFKConn = player.Idled:Connect(function()
+		VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+		task.wait(1)
+		VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+	end)
+end
+
+local function disableAntiAFK()
+	if antiAFKConn then antiAFKConn:Disconnect() antiAFKConn = nil end
+end
+
+--------------------------------------------------------
+-- AUTO LOOPS
+--------------------------------------------------------
+local autoUpgradeSpeed1  = false
+local autoUpgradeSpeed10 = false
+local AutoCollect  = false
+local AutoRebirth  = false
+local AutoSellTool = false
+local SellDelay    = 1
+
+task.spawn(function()
+	while task.wait(0.1) do
+		if autoUpgradeSpeed1 then
+			pcall(function()
+				local r = ReplicatedStorage:FindFirstChild("RemoteFunctions")
+				if r and r:FindFirstChild("UpgradeSpeed") then r.UpgradeSpeed:InvokeServer(1) end
+			end)
+		end
+	end
+end)
+
+task.spawn(function()
+	while task.wait(0.1) do
+		if autoUpgradeSpeed10 then
+			pcall(function()
+				local r = ReplicatedStorage:FindFirstChild("RemoteFunctions")
+				if r and r:FindFirstChild("UpgradeSpeed") then r.UpgradeSpeed:InvokeServer(10) end
+			end)
+		end
+	end
+end)
+
+local SlotList = {}
+for i = 1, 20 do table.insert(SlotList, tostring(i)) end
+
+local function GetMyBaseName()
+	local basesFolder = workspace:FindFirstChild("Bases")
+	if not basesFolder then return nil end
+	local refPos
+	if farmGhost and farmGhost:FindFirstChild("HumanoidRootPart") then
+		refPos = farmGhost.HumanoidRootPart.Position
+	else
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then return nil end
+		refPos = root.Position
+	end
+	local closestBase, shortestDist = nil, math.huge
+	for _, base in pairs(basesFolder:GetChildren()) do
+		if base:IsA("Model") and base.PrimaryPart then
+			local dist = (base.PrimaryPart.Position - refPos).Magnitude
+			if dist < shortestDist then shortestDist = dist closestBase = base end
+		end
+	end
+	return closestBase and closestBase.Name or nil
+end
+
+task.spawn(function()
+	while task.wait(1) do
+		if AutoCollect then
+			pcall(function()
+				local net = ReplicatedStorage:FindFirstChild("Packages")
+					and ReplicatedStorage.Packages:FindFirstChild("Net")
+				if not net then return end
+				local remote = net:FindFirstChild("RF/Plot.PlotAction")
+				if not remote then return end
+				local baseName = GetMyBaseName()
+				if not baseName then return end
+				for _, slot in ipairs(SlotList) do
+					if not AutoCollect then break end
+					pcall(function() remote:InvokeServer("Collect Money", baseName, slot) end)
+					task.wait(0.05)
+				end
+			end)
+		end
+	end
+end)
+
+task.spawn(function()
+	while task.wait(1) do
+		if AutoRebirth then
+			pcall(function()
+				local r = ReplicatedStorage:FindFirstChild("RemoteFunctions")
+				if r and r:FindFirstChild("Rebirth") then r.Rebirth:InvokeServer() end
+			end)
+		end
+	end
+end)
+
+local function parseFilterSet(selected)
+	local set = {}
+	if type(selected) == "table" then
+		for _, v in ipairs(selected) do
+			if v:upper() == "ALL" then return { ALL = true } end
+			set[v:upper()] = true
+		end
+	else
+		local v = tostring(selected)
+		if v:upper() == "ALL" then return { ALL = true } end
+		set[v:upper()] = true
+	end
+	if not next(set) then return { ALL = true } end
+	return set
+end
+
+--------------------------------------------------------
+-- AUTO TOWER TRIALS
+--------------------------------------------------------
+local towerTrialEnabled   = false
+local towerTrialSpeed     = 15
+local towerTrialThread    = nil
+local towerActive         = false
+local towerRequiredRarity = nil
+local towerSubmitCount    = 0
+local TOWER_REQUIRED      = 10
+local towerStateConn      = nil
+local towerClaimConn      = nil
+
+local function getTowerRemote(name)
+	local ok, r = pcall(function()
+		return ReplicatedStorage.Shared.Remotes.Networking["RE/Tower/" .. name]
+	end)
+	return ok and r or nil
+end
+
+local function getTowerMain()
+	local ok, result = pcall(function()
+		return workspace.GameObjects.PlaceSpecific.root.Tower:WaitForChild("Main", 5)
+	end)
+	return ok and result or nil
+end
+
+local function getAttachmentWorldPos(main, attName)
+	local att = main:FindFirstChild(attName)
+	if att and att:IsA("Attachment") then
+		return main.CFrame:PointToWorldSpace(att.Position)
+	end
+	return main.Position
+end
+
+local function towerTrialRef(key)
+	if key == "enabled" then return towerTrialEnabled end
+	if key == "speed"   then return towerTrialSpeed   end
+end
+
+local function connectTowerEvents()
+	if towerStateConn then towerStateConn:Disconnect() towerStateConn = nil end
+	if towerClaimConn then towerClaimConn:Disconnect() towerClaimConn = nil end
+	local stateRemote = getTowerRemote("TowerStateUpdate")
+	local claimRemote = getTowerRemote("TowerClaimConfirmed")
+	if stateRemote then
+		towerStateConn = stateRemote.OnClientEvent:Connect(function(data)
+			if type(data) ~= "table" then return end
+			if data.phase == "trial" then
+				towerActive         = true
+				towerRequiredRarity = data.requirement and data.requirement:upper() or nil
+				TOWER_REQUIRED      = data.maxCombo or 10
+				towerSubmitCount    = 0
+				Rayfield:Notify({
+					Title   = "🗼 Tower Active!",
+					Content = "Requires: " .. (towerRequiredRarity or "Any") .. " x" .. TOWER_REQUIRED,
+					Duration = 5, Image = 4483362458,
+				})
+			elseif data.phase == "cooldown" then
+				towerActive         = false
+				towerRequiredRarity = nil
+				Rayfield:Notify({
+					Title   = "🗼 Tower Cooldown",
+					Content = "Waiting for next tower trial...",
+					Duration = 4, Image = 4483362458,
+				})
+			end
+		end)
+	end
+	if claimRemote then
+		towerClaimConn = claimRemote.OnClientEvent:Connect(function()
+			towerActive      = false
+			towerSubmitCount = 0
+			Rayfield:Notify({
+				Title   = "🗼 Reward Claimed!",
+				Content = "Tower reward successfully claimed!",
+				Duration = 5, Image = 4483362458,
+			})
+		end)
+	end
+end
+
+local function pressStartPrompt()
+	local towerMain = getTowerMain()
+	if not towerMain then return end
+	local promptPos = getAttachmentWorldPos(towerMain, "Prompt")
+	local promptAtt = towerMain:FindFirstChild("Prompt")
+	local promptPP  = promptAtt and promptAtt:FindFirstChildOfClass("ProximityPrompt")
+	smoothTweenTo(promptPos + Vector3.new(0, 3, 0), towerTrialRef)
+	if not towerTrialEnabled then return end
+	task.wait(0.5)
+	patchPromptReach(promptPos, 25)
+	if promptPP then
+		promptPP.MaxActivationDistance = math.huge
+		promptPP.RequiresLineOfSight   = false
+		pcall(function() fireproximityprompt(promptPP) end)
+	end
+	fireAllPrompts(towerMain)
+end
+
+local function submitBrainrotToTower(target)
+	local towerMain = getTowerMain()
+	if not towerMain then return false end
+	local submitPos = getAttachmentWorldPos(towerMain, "SubmitTarget")
+
+	-- Step 1: move to brainrot and pick it up (SAME as autofarm)
+	smoothTweenTo(target.part.Position + Vector3.new(0, 3, 0), towerTrialRef)
+	if not towerTrialEnabled then return false end
+	task.wait(0.5)
+
+	-- Same pickup logic as autofarm pickupBrainrot()
+	local prompt = target.part:FindFirstChildOfClass("ProximityPrompt")
+	if prompt then
+		prompt.MaxActivationDistance = math.huge
+		prompt.RequiresLineOfSight   = false
+		pcall(function() fireproximityprompt(prompt) end)
+	else
+		local parentPrompt = target.part.Parent
+			and target.part.Parent:FindFirstChildOfClass("ProximityPrompt")
+		if parentPrompt then
+			parentPrompt.MaxActivationDistance = math.huge
+			parentPrompt.RequiresLineOfSight   = false
+			pcall(function() fireproximityprompt(parentPrompt) end)
+		end
+	end
+	task.wait(0.5)
+
+	-- Step 2: move to submit target
+	smoothTweenTo(submitPos + Vector3.new(0, 3, 0), towerTrialRef)
+	if not towerTrialEnabled then return false end
+	task.wait(0.5)
+
+	patchPromptReach(submitPos, 25)
+
+	-- Fire SubmitTarget attachment prompts
+	local submitAtt = towerMain:FindFirstChild("SubmitTarget")
+	if submitAtt then fireAllPrompts(submitAtt) end
+
+	-- Fire all prompts on tower
+	for _, desc in ipairs(towerMain:GetDescendants()) do
+		if desc:IsA("ProximityPrompt") then
+			pcall(function() fireproximityprompt(desc) end)
+		end
+	end
+
+	-- BrainrotSubmit remote fallback
+	local ok, remote = pcall(function()
+		return ReplicatedStorage.Asset.Misc.Tower.BrainrotSubmit
+	end)
+	if ok and remote then
+		if remote:IsA("RemoteEvent") then
+			pcall(function() remote:FireServer(target.obj) end)
+		elseif remote:IsA("RemoteFunction") then
+			pcall(function() remote:InvokeServer(target.obj) end)
+		end
+	end
+
+	towerSubmitCount += 1
+	return true
+end
+
+local function claimTowerReward()
+	local towerMain = getTowerMain()
+	if not towerMain then return end
+	local centerPos = getAttachmentWorldPos(towerMain, "Center")
+	smoothTweenTo(centerPos + Vector3.new(0, 3, 0), towerTrialRef)
+	task.wait(0.5)
+	local confirmRemote = getTowerRemote("TowerConfirmClaim")
+	if confirmRemote then pcall(function() confirmRemote:FireServer() end) end
+	patchPromptReach(centerPos, 25)
+	for _, desc in ipairs(towerMain:GetDescendants()) do
+		if desc:IsA("ProximityPrompt") then
+			pcall(function() fireproximityprompt(desc) end)
+		end
+	end
+	task.wait(2)
+end
+
+local function runTowerTrial()
+	connectTowerEvents()
+	local deathRecoveryConn
+	deathRecoveryConn = player.CharacterAdded:Connect(function(newChar)
+		if not towerTrialEnabled then deathRecoveryConn:Disconnect() return end
+		task.wait(2)
+		if not towerTrialEnabled then return end
+		destroyFarmGhost()
+		stopFarmNoclip()
+		local hrp = newChar:WaitForChild("HumanoidRootPart", 5)
+		if hrp then farmSurfacePos = hrp.Position end
+		createFarmGhost()
+		startFarmNoclip()
+	end)
+	local char = player.Character
+	if char then
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp then farmSurfacePos = hrp.Position end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then pcall(function() hum:UnequipTools() end) end
+	end
+	createFarmGhost()
+	startFarmNoclip()
+	while towerTrialEnabled do
+		if not towerActive then
+			pressStartPrompt()
+			task.wait(5)
+		elseif towerSubmitCount < TOWER_REQUIRED then
+			-- Use same getTargetBrainrots as autofarm, filtered by required rarity
+			local targets = getTargetBrainrots(nil, towerRequiredRarity)
+			if #targets > 0 then
+				local target = targets[1]
+				if target.part and target.part.Parent then
+					submitBrainrotToTower(target)
+					task.wait(0.5)
+				end
+			else
+				task.wait(2)
+			end
+		else
+			claimTowerReward()
+			task.wait(3)
+		end
+	end
+	deathRecoveryConn:Disconnect()
+	destroyFarmGhost()
+	stopFarmNoclip()
+	if towerStateConn then towerStateConn:Disconnect() towerStateConn = nil end
+	if towerClaimConn then towerClaimConn:Disconnect() towerClaimConn = nil end
+end
+
+local function startTowerTrial()
+	if towerTrialThread then return true end
+	if autoFarmEnabled or luckyFarmEnabled then
+		Rayfield:Notify({
+			Title   = "⚠️ Farm Conflict",
+			Content = "Stop other autofarmsFirst before Tower Trials",
+			Duration = 5, Image = 4483362458,
+		})
+		return false
+	end
+	towerTrialEnabled = true
+	towerSubmitCount  = 0
+	towerActive       = false
+	towerTrialThread  = task.spawn(runTowerTrial)
+	return true
+end
+
+local function stopTowerTrial()
+	towerTrialEnabled = false
+	towerTrialThread  = nil
+	destroyFarmGhost()
+	stopFarmNoclip()
+	if towerStateConn then towerStateConn:Disconnect() towerStateConn = nil end
+	if towerClaimConn then towerClaimConn:Disconnect() towerClaimConn = nil end
+end
+
+--------------------------------------------------------
+-- RAYFIELD GUI
+--------------------------------------------------------
+local Window = Rayfield:CreateWindow({
+	Name             = "INF Hub | Escape Tsunami",
+	Icon             = 0,
+	LoadingTitle     = "Escape Tsunami Script by bl∞3m scripts",
+	LoadingSubtitle  = "Loading...",
+	Theme            = "Default",
+	DisableRayfieldPrompts = false,
+	DisableBuildWarnings   = false,
+	ConfigurationSaving    = { Enabled = false },
+	KeySystem              = false,
+})
+
+local MainTab = Window:CreateTab("Main", 4483362458)
+MainTab:CreateToggle({ Name = "God Mode", CurrentValue = false, Flag = "GodMode",
+	Callback = function(state)
+		if state then enableGodmode() enableInstantTake()
+		else cleanupGodmode() disableInstantTake() end
+	end,
+})
+MainTab:CreateToggle({ Name = "Fast Take", CurrentValue = false, Flag = "FastTake",
+	Callback = function(state)
+		if state then enableInstantTake() else disableInstantTake() end
+	end,
+})
+MainTab:CreateToggle({ Name = "VIP Bypass", CurrentValue = false, Flag = "VIPBypass",
+	Callback = function(state)
+		if state then enableVIP() else disableVIP() end
+	end,
+})
+MainTab:CreateToggle({ Name = "Infinite Zoom", CurrentValue = false, Flag = "InfiniteZoom",
+	Callback = function(state)
+		if state then enableInfiniteZoom() else disableInfiniteZoom() end
+	end,
+})
+MainTab:CreateToggle({ Name = "Anti AFK", CurrentValue = false, Flag = "AntiAFK",
+	Callback = function(state)
+		if state then enableAntiAFK() else disableAntiAFK() end
+	end,
+})
+
+local AutofarmTab = Window:CreateTab("Autofarm", 4483362458)
+AutofarmTab:CreateToggle({ Name = "Auto Farm Brainrots", CurrentValue = false, Flag = "AutoFarm",
+	Callback = function(state)
+		if state then
+			if luckyFarmEnabled or towerTrialEnabled then
+				Rayfield:Notify({ Title = "⚠️ Farm Conflict", Content = "Stop other autofarmsFirst", Duration = 5, Image = 4483362458 })
+				task.defer(function() Rayfield.Flags.AutoFarm:Set(false) end)
+				return
+			end
+			startAutoFarm()
+		else stopAutoFarm() end
+	end,
+})
+AutofarmTab:CreateDropdown({
+	Name = "Brainrot Rarity Filter",
+	Options = {"CELESTIAL","DIVINE","INFINITY"},
+	CurrentOption = {}, MultipleOptions = true, Flag = "FarmRarityFilter",
+	Callback = function(selected)
+		autoFarmFilter = parseFilterSet(selected)
+		if not next(autoFarmFilter) then autoFarmFilter = {} end
+	end,
+})
+AutofarmTab:CreateSlider({ Name = "Tween Speed", Range = {1,30}, Increment = 1,
+	Suffix = "", CurrentValue = 5, Flag = "FarmSpeed",
+	Callback = function(val) autoFarmSpeed = val end,
+})
+AutofarmTab:CreateToggle({ Name = "Auto Farm Lucky Blocks", CurrentValue = false, Flag = "AutoLuckyFarm",
+	Callback = function(state)
+		if state then
+			if autoFarmEnabled or towerTrialEnabled then
+				Rayfield:Notify({ Title = "⚠️ Farm Conflict", Content = "Stop other autofarmsFirst", Duration = 5, Image = 4483362458 })
+				task.defer(function() Rayfield.Flags.AutoLuckyFarm:Set(false) end)
+				return
+			end
+			startLuckyFarm()
+		else stopLuckyFarm() end
+	end,
+})
+AutofarmTab:CreateDropdown({
+	Name = "Lucky Block Rarity Filter",
+	Options = {"All","COMMON","UNCOMMON","RARE","EPIC","LEGENDARY","MYTHICAL","COSMIC","SECRET","CELESTIAL","DIVINE","RADIOACTIVE","UFO","MYTHIC","ADMIN"},
+	CurrentOption = {"All"}, MultipleOptions = true, Flag = "LuckyFarmRarityFilter",
+	Callback = function(selected) luckyFarmFilter = parseFilterSet(selected) end,
+})
+AutofarmTab:CreateSlider({ Name = "Tween Speed", Range = {1,30}, Increment = 1,
+	Suffix = "", CurrentValue = 5, Flag = "LuckyFarmSpeed",
+	Callback = function(val) luckyFarmSpeed = val end,
+})
+
+local ESPTab = Window:CreateTab("ESP", 4483362458)
+ESPTab:CreateToggle({ Name = "Lucky Block ESP", CurrentValue = false, Flag = "LuckyESP",
+	Callback = function(state)
+		luckyESPEnabled = state
+		if state then enableLuckyESP() else disableLuckyESP() end
+	end,
+})
+ESPTab:CreateDropdown({
+	Name = "Lucky Block Filter",
+	Options = {"All","COMMON","UNCOMMON","RARE","EPIC","LEGENDARY","MYTHICAL","COSMIC","SECRET","CELESTIAL","DIVINE","RADIOACTIVE","UFO","MYTHIC","ADMIN"},
+	CurrentOption = {"All"}, MultipleOptions = true, Flag = "LuckyESPFilter",
+	Callback = function(selected)
+		luckyESPFilter = parseFilterSet(selected)
+		if luckyESPEnabled then refreshLuckyESP() end
+	end,
+})
+ESPTab:CreateToggle({ Name = "Brainrot ESP", CurrentValue = false, Flag = "BrainrotESP",
+	Callback = function(state)
+		brainrotESPEnabled = state
+		if state then enableBrainrotESP() else disableBrainrotESP() end
+	end,
+})
+ESPTab:CreateDropdown({
+	Name = "Brainrot Filter",
+	Options = {"All","COMMON","UNCOMMON","RARE","EPIC","COSMIC","LEGENDARY","MYTHICAL","SECRET","CELESTIAL","DIVINE","INFINITY"},
+	CurrentOption = {"All"}, MultipleOptions = true, Flag = "BrainrotESPFilter",
+	Callback = function(selected)
+		brainrotESPFilter = parseFilterSet(selected)
+		if brainrotESPEnabled then refreshBrainrotESP() end
+	end,
+})
+
+local UpgradesTab = Window:CreateTab("Upgrades", 4483362458)
+UpgradesTab:CreateToggle({ Name = "Auto Upgrade Speed +1", CurrentValue = false, Flag = "AutoUpgradeSpeed1",
+	Callback = function(state) autoUpgradeSpeed1 = state end,
+})
+UpgradesTab:CreateToggle({ Name = "Auto Upgrade Speed +10", CurrentValue = false, Flag = "AutoUpgradeSpeed10",
+	Callback = function(state) autoUpgradeSpeed10 = state end,
+})
+UpgradesTab:CreateButton({ Name = "Upgrade Speed +1", Callback = function()
+	pcall(function()
+		local r = ReplicatedStorage:FindFirstChild("RemoteFunctions")
+		if r and r:FindFirstChild("UpgradeSpeed") then r.UpgradeSpeed:InvokeServer(1) end
+	end)
+end })
+UpgradesTab:CreateButton({ Name = "Upgrade Speed +10", Callback = function()
+	pcall(function()
+		local r = ReplicatedStorage:FindFirstChild("RemoteFunctions")
+		if r and r:FindFirstChild("UpgradeSpeed") then r.UpgradeSpeed:InvokeServer(10) end
+	end)
+end })
+UpgradesTab:CreateButton({ Name = "Upgrade Carry", Callback = function()
+	pcall(function()
+		local r = ReplicatedStorage:FindFirstChild("RemoteFunctions")
+		if r and r:FindFirstChild("UpgradeCarry") then r.UpgradeCarry:InvokeServer() end
+	end)
+end })
+
+local SellTab = Window:CreateTab("Sell / Rebirth", 4483362458)
+SellTab:CreateToggle({ Name = "Auto Collect Cash", CurrentValue = false, Flag = "AutoCollect",
+	Callback = function(state) AutoCollect = state end,
+})
+SellTab:CreateToggle({ Name = "Auto Rebirth", CurrentValue = false, Flag = "AutoRebirth",
+	Callback = function(state) AutoRebirth = state end,
+})
+SellTab:CreateToggle({ Name = "Auto Sell Tool", CurrentValue = false, Flag = "AutoSellTool",
+	Callback = function(state)
+		AutoSellTool = state
+		if state then
+			task.spawn(function()
+				while AutoSellTool do
+					pcall(function()
+						local r = ReplicatedStorage:FindFirstChild("RemoteFunctions")
+						if r and r:FindFirstChild("SellTool") then r.SellTool:InvokeServer() end
+					end)
+					task.wait(SellDelay)
+				end
+			end)
+		end
+	end,
+})
+SellTab:CreateInput({ Name = "Sell Tool Delay (seconds)", CurrentValue = "1",
+	PlaceholderText = "e.g. 1", NumbersOnly = true, Flag = "SellDelay",
+	Callback = function(val)
+		local num = tonumber(val)
+		if num and num > 0 then SellDelay = num end
+	end,
+})
+SellTab:CreateButton({ Name = "Sell All Inventory", Callback = function()
+	pcall(function()
+		local r = ReplicatedStorage:FindFirstChild("RemoteFunctions")
+		if r and r:FindFirstChild("SellAll") then r.SellAll:InvokeServer() end
+	end)
+end })
+
+local EventsTab = Window:CreateTab("Events", 4483362458)
+EventsTab:CreateSection("🗼 Tower Trials")
+EventsTab:CreateToggle({ Name = "Auto Tower Trials", CurrentValue = false, Flag = "AutoTowerTrials",
+	Callback = function(state)
+		if state then
+			local ok = startTowerTrial()
+			if not ok then
+				task.defer(function() Rayfield.Flags.AutoTowerTrials:Set(false) end)
+			end
+		else
+			stopTowerTrial()
+		end
+	end,
+})
+EventsTab:CreateSlider({ Name = "Tower Farm Speed", Range = {1,30}, Increment = 1,
+	Suffix = "", CurrentValue = 15, Flag = "TowerFarmSpeed",
+	Callback = function(val) towerTrialSpeed = val end,
+})
+EventsTab:CreateLabel("Walks to tower, presses start, farms required")
+EventsTab:CreateLabel("brainrots, submits 10 and claims reward. Loops!")
+
+Rayfield.OnDestroy = function()
+	cleanupGodmode()
+	disableInstantTake()
+	disableVIP()
+	disableLuckyESP()
+	disableBrainrotESP()
+	stopAutoFarm()
+	stopLuckyFarm()
+	stopTowerTrial()
+	disableAntiAFK()
+	AutoCollect        = false
+	AutoRebirth        = false
+	AutoSellTool       = false
+	autoUpgradeSpeed1  = false
+	autoUpgradeSpeed10 = false
+end
