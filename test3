@@ -1,0 +1,649 @@
+-- Auto Tower Trials - Standalone
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local camera = workspace.CurrentCamera
+local player = Players.LocalPlayer
+
+--------------------------------------------------------
+-- VARIABLES
+--------------------------------------------------------
+local towerTrialEnabled   = false
+local towerActive         = false
+local towerRequiredRarity = nil
+local towerSubmitCount    = 0
+local TOWER_REQUIRED      = 10
+local towerTrialSpeed     = 15
+local towerStateConn      = nil
+local towerClaimConn      = nil
+local farmGhost           = nil
+local farmNoclipConn      = nil
+local farmSurfacePos      = Vector3.new(0, 0, 0)
+local INSTANT_DIST        = 20
+
+--------------------------------------------------------
+-- GUI
+--------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "TowerTrialGUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = player.PlayerGui
+
+-- Main frame
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 300, 0, 280)
+frame.Position = UDim2.new(0, 20, 0.3, 0)
+frame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = screenGui
+
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+local stroke = Instance.new("UIStroke", frame)
+stroke.Color = Color3.fromRGB(100, 60, 220)
+stroke.Thickness = 2
+
+-- Title bar
+local titleBar = Instance.new("Frame", frame)
+titleBar.Size = UDim2.new(1, 0, 0, 38)
+titleBar.BackgroundColor3 = Color3.fromRGB(100, 60, 220)
+titleBar.BorderSizePixel = 0
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
+
+-- fix bottom corners of title
+local fix = Instance.new("Frame", titleBar)
+fix.Size = UDim2.new(1, 0, 0.5, 0)
+fix.Position = UDim2.new(0, 0, 0.5, 0)
+fix.BackgroundColor3 = Color3.fromRGB(100, 60, 220)
+fix.BorderSizePixel = 0
+
+local title = Instance.new("TextLabel", titleBar)
+title.Size = UDim2.new(1, -10, 1, 0)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "🗼 Auto Tower Trials"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.TextSize = 15
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Content
+local content = Instance.new("Frame", frame)
+content.Size = UDim2.new(1, -20, 1, -48)
+content.Position = UDim2.new(0, 10, 0, 44)
+content.BackgroundTransparency = 1
+
+local layout = Instance.new("UIListLayout", content)
+layout.Padding = UDim.new(0, 8)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Helper to make a label row
+local function makeRow(labelText, order)
+    local row = Instance.new("Frame", content)
+    row.Size = UDim2.new(1, 0, 0, 32)
+    row.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+    row.BorderSizePixel = 0
+    row.LayoutOrder = order
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(0.5, -8, 1, 0)
+    lbl.Position = UDim2.new(0, 8, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = labelText
+    lbl.TextColor3 = Color3.fromRGB(140, 140, 160)
+    lbl.TextSize = 12
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local val = Instance.new("TextLabel", row)
+    val.Size = UDim2.new(0.5, -8, 1, 0)
+    val.Position = UDim2.new(0.5, 0, 0, 0)
+    val.BackgroundTransparency = 1
+    val.Text = "—"
+    val.TextColor3 = Color3.fromRGB(220, 220, 255)
+    val.TextSize = 12
+    val.Font = Enum.Font.Gotham
+    val.TextXAlignment = Enum.TextXAlignment.Right
+
+    return val
+end
+
+local statusVal  = makeRow("Status", 1)
+local phaseVal   = makeRow("Phase", 2)
+local rarityVal  = makeRow("Required", 3)
+local progressVal= makeRow("Progress", 4)
+local ghostVal   = makeRow("Ghost", 5)
+
+-- Toggle button
+local toggleBtn = Instance.new("TextButton", content)
+toggleBtn.Size = UDim2.new(1, 0, 0, 38)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 90)
+toggleBtn.BorderSizePixel = 0
+toggleBtn.Text = "▶  START"
+toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+toggleBtn.TextSize = 14
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.LayoutOrder = 6
+Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 8)
+
+-- Log box
+local logBox = Instance.new("ScrollingFrame", content)
+logBox.Size = UDim2.new(1, 0, 0, 60)
+logBox.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
+logBox.BorderSizePixel = 0
+logBox.ScrollBarThickness = 3
+logBox.ScrollBarImageColor3 = Color3.fromRGB(100, 60, 220)
+logBox.CanvasSize = UDim2.new(0, 0, 0, 0)
+logBox.AutomaticCanvasSize = Enum.AutomaticSize.Y
+logBox.LayoutOrder = 7
+Instance.new("UICorner", logBox).CornerRadius = UDim.new(0, 8)
+
+local logLayout = Instance.new("UIListLayout", logBox)
+logLayout.Padding = UDim.new(0, 2)
+local logPad = Instance.new("UIPadding", logBox)
+logPad.PaddingLeft = UDim.new(0, 6)
+logPad.PaddingTop = UDim.new(0, 4)
+
+local logCount = 0
+local function log(msg, color)
+    color = color or Color3.fromRGB(200, 200, 220)
+    logCount += 1
+    local lbl = Instance.new("TextLabel", logBox)
+    lbl.Size = UDim2.new(1, -6, 0, 15)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = msg
+    lbl.TextColor3 = color
+    lbl.TextSize = 11
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextTruncate = Enum.TextTruncate.AtEnd
+    lbl.LayoutOrder = logCount
+    task.defer(function()
+        logBox.CanvasPosition = Vector2.new(0, logBox.AbsoluteCanvasSize.Y)
+    end)
+    -- keep only last 30
+    if logCount > 30 then
+        for _, c in ipairs(logBox:GetChildren()) do
+            if c:IsA("TextLabel") and c.LayoutOrder == logCount - 30 then
+                c:Destroy()
+            end
+        end
+    end
+end
+
+-- GUI update helpers
+local function setStatus(text, color)
+    statusVal.Text = text
+    statusVal.TextColor3 = color or Color3.fromRGB(220, 220, 255)
+end
+
+local function setPhase(text, color)
+    phaseVal.Text = text
+    phaseVal.TextColor3 = color or Color3.fromRGB(220, 220, 255)
+end
+
+local function setRarity(text)
+    rarityVal.Text = text or "—"
+    rarityVal.TextColor3 = Color3.fromRGB(255, 220, 80)
+end
+
+local function setProgress(cur, max)
+    progressVal.Text = cur .. " / " .. max
+    progressVal.TextColor3 = cur >= max
+        and Color3.fromRGB(80, 220, 100)
+        or Color3.fromRGB(220, 220, 255)
+end
+
+local function setGhost(text, color)
+    ghostVal.Text = text
+    ghostVal.TextColor3 = color or Color3.fromRGB(220, 220, 255)
+end
+
+--------------------------------------------------------
+-- GHOST / NOCLIP
+--------------------------------------------------------
+local function createGhost()
+    if farmGhost then farmGhost:Destroy() end
+    local char = player.Character
+    if not char then return end
+    char.Archivable = true
+    local ghost = char:Clone()
+    char.Archivable = false
+    ghost.Name = "TowerFarmGhost"
+    for _, v in ipairs(ghost:GetDescendants()) do
+        if v:IsA("BasePart") then
+            v.CanCollide = false
+            v.Anchored = true
+        elseif v:IsA("Script") or v:IsA("LocalScript") then
+            v:Destroy()
+        end
+    end
+    ghost.Parent = workspace
+    farmGhost = ghost
+    local gh = ghost:FindFirstChildOfClass("Humanoid")
+    if gh then camera.CameraSubject = gh end
+    setGhost("Active", Color3.fromRGB(80, 220, 100))
+    log("Ghost created", Color3.fromRGB(80, 220, 100))
+end
+
+local function destroyGhost()
+    if farmGhost then farmGhost:Destroy() farmGhost = nil end
+    local char = player.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then camera.CameraSubject = hum end
+    end
+    setGhost("Inactive", Color3.fromRGB(180, 80, 80))
+end
+
+local function startNoclip()
+    if farmNoclipConn then return end
+    farmNoclipConn = RunService.Heartbeat:Connect(function()
+        local char = player.Character
+        if not char then return end
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then v.CanCollide = false end
+        end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = CFrame.new(farmSurfacePos + Vector3.new(0, -15, 0))
+            hrp.Velocity = Vector3.zero
+        end
+    end)
+end
+
+local function stopNoclip()
+    if farmNoclipConn then farmNoclipConn:Disconnect() farmNoclipConn = nil end
+    local char = player.Character
+    if char then
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then v.CanCollide = true end
+        end
+    end
+end
+
+local function tweenGhostTo(targetPos)
+    local ghostHRP = farmGhost and farmGhost:FindFirstChild("HumanoidRootPart")
+    if not ghostHRP then
+        log("FAIL: Ghost HRP missing!", Color3.fromRGB(255, 80, 80))
+        return
+    end
+
+    local dist = (targetPos - ghostHRP.Position).Magnitude
+    if dist <= INSTANT_DIST then
+        ghostHRP.CFrame = CFrame.new(targetPos)
+        farmSurfacePos = targetPos
+        return
+    end
+
+    local speedFactor = 0.08 - ((towerTrialSpeed - 1) / 29) * 0.079
+    local duration = math.max(0.01, dist * speedFactor)
+
+    local tween = TweenService:Create(
+        ghostHRP,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear),
+        { CFrame = CFrame.new(targetPos) }
+    )
+    tween:Play()
+    local done = false
+    tween.Completed:Connect(function() done = true end)
+    while not done do
+        if not towerTrialEnabled then tween:Cancel() return end
+        farmSurfacePos = ghostHRP.Position
+        task.wait()
+    end
+    farmSurfacePos = targetPos
+end
+
+local function patchPrompts(pos, radius)
+    for _, p in ipairs(workspace:GetDescendants()) do
+        if p:IsA("ProximityPrompt") then
+            local pp = p.Parent
+            local part = pp and (pp:IsA("BasePart") and pp or pp:FindFirstChildWhichIsA("BasePart"))
+            if part and (part.Position - pos).Magnitude < radius then
+                p.MaxActivationDistance = math.huge
+                p.RequiresLineOfSight = false
+            end
+        end
+    end
+end
+
+--------------------------------------------------------
+-- TOWER HELPERS
+--------------------------------------------------------
+local function getTowerRemote(name)
+    local ok, r = pcall(function()
+        return ReplicatedStorage.Shared.Remotes.Networking["RE/Tower/" .. name]
+    end)
+    return ok and r or nil
+end
+
+local function getTowerMain()
+    local ok, r = pcall(function()
+        return workspace.GameObjects.PlaceSpecific.root.Tower:WaitForChild("main", 5)
+    end)
+    return ok and r or nil
+end
+
+local function fireAllPrompts(obj)
+    if not obj then return end
+    local pp = obj:FindFirstChildOfClass("ProximityPrompt")
+    if pp then
+        pp.MaxActivationDistance = math.huge
+        pp.RequiresLineOfSight = false
+        pcall(function() fireproximityprompt(pp) end)
+    end
+    for _, desc in ipairs(obj:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") then
+            desc.MaxActivationDistance = math.huge
+            desc.RequiresLineOfSight = false
+            pcall(function() fireproximityprompt(desc) end)
+        end
+    end
+end
+
+-- Press the tower start prompt
+local function pressStartPrompt()
+    local towerMain = getTowerMain()
+    if not towerMain then
+        log("Cannot find tower main!", Color3.fromRGB(255, 80, 80))
+        return
+    end
+
+    local towerPos = towerMain.PrimaryPart and towerMain.PrimaryPart.Position or Vector3.new(0,0,0)
+
+    -- Find the prompt child (not submit target)
+    local bestPrompt, bestPos = nil, towerPos
+    for _, child in ipairs(towerMain:GetChildren()) do
+        if child.Name:lower() ~= "submit target" then
+            local pp = child:FindFirstChildOfClass("ProximityPrompt")
+                or child:FindFirstChild("prompt") and child.prompt:FindFirstChildOfClass("ProximityPrompt")
+            if pp then
+                bestPrompt = pp
+                bestPos = child:IsA("BasePart") and child.Position
+                    or (child.PrimaryPart and child.PrimaryPart.Position)
+                    or towerPos
+                log("Start prompt on: " .. child.Name, Color3.fromRGB(180, 180, 255))
+                break
+            end
+        end
+    end
+
+    log("Moving to tower...", Color3.fromRGB(180, 180, 255))
+    tweenGhostTo(bestPos + Vector3.new(0, 3, 0))
+    if not towerTrialEnabled then return end
+    task.wait(0.5)
+
+    patchPrompts(bestPos, 40)
+
+    if bestPrompt then
+        bestPrompt.MaxActivationDistance = math.huge
+        bestPrompt.RequiresLineOfSight = false
+        pcall(function() fireproximityprompt(bestPrompt) end)
+        log("Pressed start prompt!", Color3.fromRGB(80, 220, 100))
+    end
+
+    -- Fire everything on tower just in case
+    fireAllPrompts(towerMain)
+    for _, child in ipairs(towerMain:GetChildren()) do
+        fireAllPrompts(child)
+    end
+end
+
+-- Find the next brainrot to collect
+local function getNextBrainrot()
+    local root = workspace:FindFirstChild("ActiveBrainrots")
+    if not root then
+        log("ActiveBrainrots not found!", Color3.fromRGB(255, 80, 80))
+        return nil, nil
+    end
+
+    for _, rarityFolder in ipairs(root:GetChildren()) do
+        local rarity = rarityFolder.Name:upper()
+        local wanted = towerRequiredRarity
+        if not wanted or rarity == wanted then
+            for _, obj in ipairs(rarityFolder:GetChildren()) do
+                local part = obj:IsA("BasePart") and obj
+                    or (obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)))
+                if part then
+                    log("Found " .. rarity .. " brainrot", Color3.fromRGB(80, 220, 100))
+                    return obj, part
+                end
+            end
+        end
+    end
+
+    log("No " .. (towerRequiredRarity or "any") .. " brainrot found", Color3.fromRGB(255, 180, 80))
+    return nil, nil
+end
+
+-- Pick up brainrot then walk to tower and submit
+local function submitOne(brainrotObj, brainrotPart)
+    local towerMain = getTowerMain()
+    if not towerMain then return false end
+
+    local submitTarget = towerMain:FindFirstChild("submit target")
+    local submitPos = submitTarget and submitTarget:IsA("BasePart") and submitTarget.Position
+        or towerMain.PrimaryPart and towerMain.PrimaryPart.Position
+        or Vector3.new(0,0,0)
+
+    -- Go pick up brainrot
+    log("Going to brainrot...", Color3.fromRGB(180, 180, 255))
+    tweenGhostTo(brainrotPart.Position + Vector3.new(0, 3, 0))
+    if not towerTrialEnabled then return false end
+    task.wait(0.4)
+
+    fireAllPrompts(brainrotPart)
+    if brainrotObj ~= brainrotPart then fireAllPrompts(brainrotObj) end
+    task.wait(0.5)
+
+    -- Go submit to tower
+    log("Submitting to tower...", Color3.fromRGB(180, 180, 255))
+    tweenGhostTo(submitPos + Vector3.new(0, 3, 0))
+    if not towerTrialEnabled then return false end
+    task.wait(0.4)
+
+    patchPrompts(submitPos, 30)
+    if submitTarget then fireAllPrompts(submitTarget) end
+    fireAllPrompts(towerMain)
+    for _, child in ipairs(towerMain:GetChildren()) do
+        fireAllPrompts(child)
+    end
+
+    -- Remote fallback
+    local ok, remote = pcall(function()
+        return ReplicatedStorage.Asset.Misc.Tower.BrainrotSubmit
+    end)
+    if ok and remote then
+        if remote:IsA("RemoteEvent") then
+            pcall(function() remote:FireServer(brainrotObj) end)
+        elseif remote:IsA("RemoteFunction") then
+            pcall(function() remote:InvokeServer(brainrotObj) end)
+        end
+    end
+
+    towerSubmitCount += 1
+    setProgress(towerSubmitCount, TOWER_REQUIRED)
+    log("Submitted " .. towerSubmitCount .. "/" .. TOWER_REQUIRED, Color3.fromRGB(100, 200, 255))
+    return true
+end
+
+-- Claim reward
+local function claimReward()
+    local towerMain = getTowerMain()
+    if not towerMain then return end
+
+    local towerPos = towerMain.PrimaryPart and towerMain.PrimaryPart.Position or Vector3.new(0,0,0)
+    tweenGhostTo(towerPos + Vector3.new(0, 3, 0))
+    task.wait(0.5)
+
+    log("Claiming reward...", Color3.fromRGB(255, 220, 80))
+
+    local confirmRemote = getTowerRemote("TowerConfirmClaim")
+    if confirmRemote then
+        pcall(function() confirmRemote:FireServer() end)
+    end
+
+    local center = towerMain:FindFirstChild("center")
+    if center then fireAllPrompts(center) end
+
+    patchPrompts(towerPos, 30)
+    fireAllPrompts(towerMain)
+    for _, child in ipairs(towerMain:GetChildren()) do
+        fireAllPrompts(child)
+    end
+
+    task.wait(2)
+end
+
+--------------------------------------------------------
+-- REMOTE LISTENERS
+--------------------------------------------------------
+local function connectRemotes()
+    if towerStateConn then towerStateConn:Disconnect() towerStateConn = nil end
+    if towerClaimConn then towerClaimConn:Disconnect() towerClaimConn = nil end
+
+    local stateRemote = getTowerRemote("TowerStateUpdate")
+    local claimRemote = getTowerRemote("TowerClaimConfirmed")
+
+    if stateRemote then
+        log("Hooked TowerStateUpdate", Color3.fromRGB(80, 220, 100))
+        towerStateConn = stateRemote.OnClientEvent:Connect(function(data)
+            if type(data) ~= "table" then return end
+            print("[Tower] Phase:", data.phase, "| Requirement:", data.requirement)
+            if data.phase == "trial" then
+                towerActive         = true
+                towerRequiredRarity = data.requirement and data.requirement:upper() or nil
+                TOWER_REQUIRED      = data.maxCombo or 10
+                towerSubmitCount    = 0
+                setPhase("TRIAL", Color3.fromRGB(80, 220, 100))
+                setRarity(towerRequiredRarity or "Any")
+                setProgress(0, TOWER_REQUIRED)
+                log("Tower ACTIVE! Need: " .. (towerRequiredRarity or "Any"), Color3.fromRGB(80, 220, 100))
+            elseif data.phase == "cooldown" then
+                towerActive         = false
+                towerRequiredRarity = nil
+                setPhase("COOLDOWN", Color3.fromRGB(255, 180, 80))
+                setRarity("—")
+                log("Tower on cooldown...", Color3.fromRGB(255, 180, 80))
+            end
+        end)
+    else
+        log("WARNING: TowerStateUpdate not found!", Color3.fromRGB(255, 80, 80))
+    end
+
+    if claimRemote then
+        towerClaimConn = claimRemote.OnClientEvent:Connect(function()
+            towerActive      = false
+            towerSubmitCount = 0
+            setPhase("CLAIMED", Color3.fromRGB(255, 220, 80))
+            log("Reward claimed! Waiting for next cycle...", Color3.fromRGB(255, 220, 80))
+        end)
+    end
+end
+
+--------------------------------------------------------
+-- MAIN LOOP
+--------------------------------------------------------
+local function runLoop()
+    connectRemotes()
+
+    local char = player.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then farmSurfacePos = hrp.Position end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then pcall(function() hum:UnequipTools() end) end
+    end
+
+    createGhost()
+    startNoclip()
+
+    setStatus("Running", Color3.fromRGB(80, 220, 100))
+    log("Tower Trial system started!", Color3.fromRGB(80, 220, 100))
+
+    -- Death recovery
+    local deathConn = player.CharacterAdded:Connect(function(newChar)
+        if not towerTrialEnabled then return end
+        task.wait(2)
+        destroyGhost()
+        stopNoclip()
+        local hrp = newChar:WaitForChild("HumanoidRootPart", 5)
+        if hrp then farmSurfacePos = hrp.Position end
+        createGhost()
+        startNoclip()
+    end)
+
+    while towerTrialEnabled do
+        if not towerActive then
+            -- Walk to tower and press start prompt every 5 seconds
+            setStatus("Pressing start...", Color3.fromRGB(255, 180, 80))
+            pressStartPrompt()
+            task.wait(5)
+
+        elseif towerSubmitCount < TOWER_REQUIRED then
+            -- Farm and submit brainrots
+            setStatus("Farming...", Color3.fromRGB(100, 180, 255))
+            local obj, part = getNextBrainrot()
+            if obj and part then
+                submitOne(obj, part)
+                task.wait(0.5)
+            else
+                log("Waiting for brainrots...", Color3.fromRGB(255, 180, 80))
+                task.wait(2)
+            end
+
+        else
+            -- All submitted, claim
+            setStatus("Claiming!", Color3.fromRGB(255, 220, 80))
+            claimReward()
+            task.wait(3)
+        end
+    end
+
+    deathConn:Disconnect()
+    destroyGhost()
+    stopNoclip()
+    setStatus("Stopped", Color3.fromRGB(180, 80, 80))
+    log("Stopped.", Color3.fromRGB(180, 80, 80))
+
+    if towerStateConn then towerStateConn:Disconnect() towerStateConn = nil end
+    if towerClaimConn then towerClaimConn:Disconnect() towerClaimConn = nil end
+end
+
+--------------------------------------------------------
+-- TOGGLE BUTTON
+--------------------------------------------------------
+local running = false
+local thread  = nil
+
+toggleBtn.MouseButton1Click:Connect(function()
+    running = not running
+    if running then
+        towerTrialEnabled = true
+        towerActive       = false
+        towerSubmitCount  = 0
+        toggleBtn.Text = "⏹  STOP"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+        thread = task.spawn(runLoop)
+    else
+        towerTrialEnabled = false
+        thread = nil
+        destroyGhost()
+        stopNoclip()
+        toggleBtn.Text = "▶  START"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 90)
+        setStatus("Stopped", Color3.fromRGB(180, 80, 80))
+    end
+end)
+
+setStatus("Ready", Color3.fromRGB(180, 180, 255))
+setPhase("—")
+setProgress(0, 10)
+setGhost("Inactive", Color3.fromRGB(180, 80, 80))
+log("Script loaded. Press START to begin.", Color3.fromRGB(180, 180, 255))
