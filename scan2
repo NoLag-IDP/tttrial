@@ -1,0 +1,67 @@
+-- BROAD SEARCH - scans everything
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = game:GetService("Players").LocalPlayer
+
+print("=== BROAD SEARCH ===")
+print("")
+
+-- 1) Search ALL of workspace for anything tower related
+print("--- Searching Workspace for Tower ---")
+for _, v in ipairs(workspace:GetDescendants()) do
+    local name = v.Name:lower()
+    if name:find("tower") then
+        print("FOUND:", v:GetFullName(), "|", v.ClassName)
+    end
+end
+
+print("")
+
+-- 2) Search ALL of ReplicatedStorage for anything tower related
+print("--- Searching ReplicatedStorage for Tower ---")
+for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
+    local name = v.Name:lower()
+    if name:find("tower") then
+        print("FOUND:", v:GetFullName(), "|", v.ClassName)
+    end
+end
+
+print("")
+
+-- 3) Search PlayerGui for anything tower related
+print("--- Searching PlayerGui for Tower ---")
+for _, v in ipairs(player.PlayerGui:GetDescendants()) do
+    local name = v.Name:lower()
+    if name:find("tower") or name:find("trial") then
+        print("FOUND:", v:GetFullName(), "|", v.ClassName)
+    end
+end
+
+print("")
+
+-- 4) Hook EVERY single RemoteEvent in the entire game
+-- This will catch whatever fires when you activate the tower
+print("--- Hooking ALL RemoteEvents in ReplicatedStorage ---")
+local count = 0
+for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
+    if v:IsA("RemoteEvent") then
+        count = count + 1
+        v.OnClientEvent:Connect(function(...)
+            local args = {...}
+            print("REMOTE FIRED: " .. v:GetFullName())
+            for i, arg in ipairs(args) do
+                if type(arg) == "table" then
+                    print("  [table]")
+                    for k, val in pairs(arg) do
+                        print("    " .. tostring(k) .. " = " .. tostring(val))
+                    end
+                else
+                    print("  arg" .. i .. " = " .. tostring(arg) .. " (" .. type(arg) .. ")")
+                end
+            end
+        end)
+    end
+end
+print("Hooked " .. count .. " RemoteEvents total")
+
+print("")
+print("=== NOW activate the tower - ANY remote that fires will show up ===")
