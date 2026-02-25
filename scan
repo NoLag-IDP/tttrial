@@ -1,0 +1,112 @@
+-- TOWER DIAGNOSTIC V2 - checks tower state NOW without waiting
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = game:GetService("Players").LocalPlayer
+
+print("=== TOWER DIAGNOSTIC V2 ===")
+print("")
+
+-- 1) Check all prompts on the tower main right now
+print("--- All ProximityPrompts on Tower ---")
+local ok, towerMain = pcall(function()
+    return workspace.GameObjects.PlaceSpecific.root.Tower:WaitForChild("main", 5)
+end)
+if ok and towerMain then
+    print("Tower main found!")
+    local found = false
+    for _, v in ipairs(towerMain:GetDescendants()) do
+        if v:IsA("ProximityPrompt") then
+            found = true
+            print("  PROMPT:", v.Name)
+            print("    Parent:", v.Parent.Name)
+            print("    ActionText:", v.ActionText)
+            print("    ObjectText:", v.ObjectText)
+            print("    HoldDuration:", v.HoldDuration)
+            print("    Enabled:", v.Enabled)
+            print("    MaxActivationDistance:", v.MaxActivationDistance)
+            print("")
+        end
+    end
+    if not found then print("  No ProximityPrompts found on tower right now") end
+else
+    print("FAILED to find tower main")
+end
+
+print("")
+
+-- 2) Print EVERYTHING inside tower main with full tree
+print("--- Full Tower Main Tree ---")
+local ok2, towerMain2 = pcall(function()
+    return workspace.GameObjects.PlaceSpecific.root.Tower.main
+end)
+if ok2 and towerMain2 then
+    for _, child in ipairs(towerMain2:GetChildren()) do
+        print("  [" .. child.ClassName .. "] " .. child.Name)
+        for _, sub in ipairs(child:GetChildren()) do
+            print("    [" .. sub.ClassName .. "] " .. sub.Name)
+            for _, subsub in ipairs(sub:GetChildren()) do
+                print("      [" .. subsub.ClassName .. "] " .. subsub.Name)
+            end
+        end
+    end
+end
+
+print("")
+
+-- 3) Watch for ANY remote firing from Tower folder
+print("--- Hooking ALL Tower Remotes ---")
+local ok3, towerRemotes = pcall(function()
+    return ReplicatedStorage.Asset.Shared.Remotes.Networking.RE.Tower
+end)
+if ok3 and towerRemotes then
+    for _, remote in ipairs(towerRemotes:GetChildren()) do
+        if remote:IsA("RemoteEvent") then
+            print("Hooked RemoteEvent:", remote.Name)
+            remote.OnClientEvent:Connect(function(...)
+                local args = {...}
+                print("FIRED -> " .. remote.Name)
+                for i, v in ipairs(args) do
+                    if type(v) == "table" then
+                        print("  [table]")
+                        for k, val in pairs(v) do
+                            print("    " .. tostring(k) .. " = " .. tostring(val))
+                        end
+                    else
+                        print("  arg" .. i .. " = " .. tostring(v) .. " (" .. type(v) .. ")")
+                    end
+                end
+            end)
+        end
+    end
+    print("All tower remotes hooked! Now walk up to the tower and activate it.")
+    print("Every remote that fires will be printed here.")
+else
+    print("FAILED to hook tower remotes")
+end
+
+print("")
+
+-- 4) Watch TowerTrialGUI for changes
+print("--- Watching TowerTrialGUI ---")
+local gui = player.PlayerGui:WaitForChild("TowerTrialGUI", 5)
+if gui then
+    print("TowerTrialGUI found!")
+    local function printGui(obj, indent)
+        indent = indent or ""
+        print(indent .. "[" .. obj.ClassName .. "] " .. obj.Name)
+        for _, v in ipairs(obj:GetChildren()) do
+            printGui(v, indent .. "  ")
+        end
+    end
+    printGui(gui)
+
+    -- Watch for any property changes
+    gui.DescendantAdded:Connect(function(v)
+        print("GUI DescendantAdded:", v.Name, "|", v.ClassName)
+    end)
+else
+    print("TowerTrialGUI not found")
+end
+
+print("")
+print("=== Script ready - now go activate the tower when timer hits 0 ===")
+print("=== Everything that fires will be printed automatically ===")
