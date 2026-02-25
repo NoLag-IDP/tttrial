@@ -1,0 +1,44 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = game:GetService("Players").LocalPlayer
+
+print("=== FULL SEARCH ===")
+
+-- 1) Print everything in ReplicatedStorage.Shared
+print("--- ReplicatedStorage.Shared contents ---")
+local shared = ReplicatedStorage:FindFirstChild("Shared")
+if shared then
+    for _, v in ipairs(shared:GetDescendants()) do
+        print(v:GetFullName(), "|", v.ClassName)
+    end
+else
+    print("No Shared folder found")
+end
+
+print("")
+
+-- 2) Hook every remote event in the ENTIRE game no path needed
+print("--- Hooking ALL RemoteEvents everywhere ---")
+local function hookAll(parent)
+    for _, v in ipairs(parent:GetDescendants()) do
+        if v:IsA("RemoteEvent") then
+            v.OnClientEvent:Connect(function(...)
+                local args = {...}
+                print("FIRED: " .. v:GetFullName())
+                for i, arg in ipairs(args) do
+                    if type(arg) == "table" then
+                        for k, val in pairs(arg) do
+                            print("  " .. tostring(k) .. " = " .. tostring(val))
+                        end
+                    else
+                        print("  arg" .. i .. ":", tostring(arg), type(arg))
+                    end
+                end
+            end)
+        end
+    end
+end
+
+hookAll(ReplicatedStorage)
+hookAll(game:GetService("Players").LocalPlayer.PlayerGui)
+
+print("All remotes hooked! Activate the tower now.")
